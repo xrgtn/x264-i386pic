@@ -108,6 +108,15 @@
     %define PIC 0 ; PIC isn't used on 32-bit Windows
 %elifndef PIC
     %define PIC 0
+%elifempty PIC    ; -DPIC
+    %define PIC 2 ; i386 PIC
+%elifnum PIC      ; -DPIC=0, -DPIC=1, -DPIC=1+1 etc
+    %assign PIC PIC ; convert 1+1 and alike to number
+%else             ; -DPIC=foo etc
+    ; %define X x
+    ; %error %strcat("X=", %str(X))
+    ; %assign Y X  <-- error will be reported here, therefore use fatal():
+    %fatal %strcat("invalid PIC=", %str(PIC))
 %endif
 
 %define HAVE_PRIVATE_EXTERN 1
@@ -365,6 +374,74 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %endrep
     %xdefine stack_offset %%stack_offset
     %assign n_arg_names %0
+%endmacro
+
+; PIC macros:
+; * PIC              PIC mode:
+;                    0  no PIC used (pic(a) returns (a), PIC_BEGIN and PIC_END
+;                       are no-op)
+;                    1  rip-relative PIC on x64 (works automagically after
+;                       'default rel' directive -- pic(), PIC_BEGIN & PIC_END
+;                       do nothing, same as in mode 0)
+;                    2  i386 PIC mode: enable PIC_BEGIN, PIC_END,
+;                       pic() etc)
+; * pic(abs_addr)    expands to ((rpic)+((abs_addr)-.lpicN)) when PIC == 2.
+;                    Expands to (abs_addr) on PIC != 2.
+; * PIC_BEGIN        stores previous value of rpic on stack and initializes
+;                    rpic if rpic isn't already defined. As optimization,
+;                    doesn't push rpic in functions that have regs_used < 3.
+;                    Expands to nothing on PIC != 2.
+; * PIC_END          restores previous rpic and undefines rpic if not inside
+;                    outer PIC_BEGIN/PIC_END block. Also doesn't pop
+;                    rpic in functions having regs_used < 3.
+;                    Expands to nothing on PIC != 2.
+; * picb             PIC_BEGIN/PIC_END balance counter.
+; * rpic             gen-purpose register used as base reg for lpic-relative
+;                    addressing; if initialized correctly [by PIC_BEGIN],
+;                    rpic contains address of closest preceding .lpic label.
+; * lpic             returns local label in .lpicN format, N is 1,2,..
+; * lpicno           current/latest lpic number.
+
+
+%define pic(a) %cond(PIC == 2, ((rpic)+((a)-lpic)), (a))
+%define lpic .lpic %+ lpicno
+%assign lpicno 0
+
+; PIC_BEGIN [reg]:   use reg as rpic, or select rpic automatically
+%assign picb 0
+%macro PIC_BEGIN 0-1
+    %if PIC == 2
+        %if picb == 0
+            %if %0 >= 1
+                %define rpic %1
+                PUSH rpic
+            %elif regs_used < 3
+                %define rpic r2
+            %else
+                %define rpic r7
+                PUSH rpic
+            %endif
+            %assign lpicno lpicno+1
+            call lpic
+lpic:       pop rpic
+        %endif
+        %assign picb picb+1
+    %endif
+%endmacro
+%macro PIC_END 0
+    %if PIC == 2
+        %assign picb picb-1
+        %if picb < 0
+            %fatal %strcat("PIC_END not matched by PIC_BEGIN in ",\
+                %str(current_function))
+        %endif
+        %if picb == 0
+            %if regs_used >= 3
+                POP rpic
+            %endif
+            %undef rpic
+        %endif
+    %endif
 %endmacro
 
 %define required_stack_alignment ((mmsize + 15) & ~15)
@@ -716,6 +793,10 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
 ; We can automatically detect "follows a branch", but not a branch target.
 ; (SSSE3 is a sufficient condition to know that your cpu doesn't have this problem.)
 %macro REP_RET 0
+    %if picb != 0
+        %fatal %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
+            ") at end of ", %str(current_function))
+    %endif
     %if has_epilogue || cpuflag(ssse3)
         RET
     %else
@@ -726,6 +807,10 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
 
 %define last_branch_adr $$
 %macro AUTO_REP_RET 0
+    %if picb != 0
+        %fatal %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
+            ") at end of ", %str(current_function))
+    %endif
     %if notcpuflag(ssse3)
         times ((last_branch_adr-$)>>31)+1 rep ; times 1 iff $ == last_branch_adr.
     %endif
@@ -802,6 +887,10 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     %endif
     align function_align
     %2:
+    %if picb != 0
+        %fatal %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
+            ") at start of ", %str(current_function))
+    %endif
     RESET_MM_PERMUTATION        ; needed for x86-64, also makes disassembly somewhat nicer
     %xdefine rstk rsp           ; copy of the original stack pointer, used when greater alignment than the known stack alignment is required
     %assign stack_offset 0      ; stack pointer offset relative to the return address
@@ -1900,3 +1989,5 @@ EVEX_INSTR vrcpps,         vrcp14ps,   1 ; EVEX versions have higher precision
 EVEX_INSTR vrcpss,         vrcp14ss,   1
 EVEX_INSTR vrsqrtps,       vrsqrt14ps, 1
 EVEX_INSTR vrsqrtss,       vrsqrt14ss, 1
+
+; vi:set sw=4 et:
