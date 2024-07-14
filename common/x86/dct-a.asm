@@ -158,7 +158,9 @@ cglobal dct4x4dc, 1,1,5
     mova   m3, [r0+48]
     WALSH4_1D  d, 0,1,2,3,4
     TRANSPOSE4x4D 0,1,2,3,4
-    paddd  m0, [pd_1]
+    PIC_BEGIN
+    paddd  m0, [pic(pd_1)]
+    PIC_END
     WALSH4_1D  d, 0,1,2,3,4
     psrad  m0, 1
     psrad  m1, 1
@@ -355,7 +357,9 @@ cglobal sub4x4_dct, 3,3
 cglobal sub4x4_dct, 3,3
 .skip_prologue:
 %if cpuflag(ssse3)
-    mova m5, [hsub_mul]
+    PIC_BEGIN
+    mova m5, [pic(hsub_mul)]
+    PIC_END
 %endif
     LOAD_DIFF8x4 0, 3, 1, 2, 4, 5, r1, r2
     DCT4_1D 0,1,2,3,4
@@ -385,7 +389,9 @@ SUB_DCT4
     movq      %3, %5
     movhps    %3, %6
     paddsw    %1, %3
-    CLIPW     %1, %4, [pw_pixel_max]
+    PIC_BEGIN
+    CLIPW     %1, %4, [pic(pw_pixel_max)]
+    PIC_END
     movq      %5, %1
     movhps    %6, %1
 %endmacro
@@ -400,7 +406,9 @@ cglobal add4x4_idct, 2,2,6
     mova  m0, [r1+ 0]
     IDCT4_1D d,0,1,2,3,4,5
     TRANSPOSE4x4D 0,1,2,3,4
-    paddd m0, [pd_32]
+    PIC_BEGIN
+    paddd m0, [pic(pd_32)]
+    PIC_END
     IDCT4_1D d,0,1,2,3,4,5
     pxor  m5, m5
     STORE_DIFFx2 m0, m1, m4, m5, [r0-2*FDEC_STRIDEB], [r0-1*FDEC_STRIDEB]
@@ -425,7 +433,9 @@ cglobal add4x4_idct, 2,2
     movq  m0, [r1+ 0]
     IDCT4_1D w,0,1,2,3,4,5
     TRANSPOSE4x4W 0,1,2,3,4
-    paddw m0, [pw_32]
+    PIC_BEGIN
+    paddw m0, [pic(pw_32)]
+    PIC_END
     IDCT4_1D w,0,1,2,3,4,5
     STORE_DIFF  m0, m4, m7, [r0+0*FDEC_STRIDE]
     STORE_DIFF  m1, m4, m7, [r0+1*FDEC_STRIDE]
@@ -451,7 +461,9 @@ cglobal add4x4_idct, 2,2,6
     punpckhdq m2, m0
     SWAP       0, 1
 
-    mova      m1, [pw_32_0]
+    PIC_BEGIN
+    mova      m1, [pic(pw_32_0)]
+    PIC_END
     paddw     m1, m0            ; row1/row0 corrected
     psraw     m0, 1             ; row1>>1/...
     psraw     m3, m2, 1         ; row3>>1/...
@@ -526,7 +538,9 @@ cglobal_label .skip_prologue
     SBUTTERFLY qdq, 2, 3, 4
     IDCT4_1D w,0,1,2,3,4,5
     TRANSPOSE2x4x4W 0,1,2,3,4
-    paddw m0, [pw_32]
+    PIC_BEGIN
+    paddw m0, [pic(pw_32)]
+    PIC_END
     IDCT4_1D w,0,1,2,3,4,5
     STOREx2_AVX2 0, 1, 4, 5, -4, 0, -3, 1, 7
     STOREx2_AVX2 2, 3, 4, 5, -2, 2, -1, 3, 7
@@ -686,7 +700,9 @@ cglobal dct4x4x4_internal
 %endmacro
 
 cglobal sub8x8_dct, 3,3
-    mova       m0, [dct_avx512]
+    PIC_BEGIN
+    mova       m0, [pic(dct_avx512)]
+    PIC_END
     DCT8x8_LOAD_FENC_AVX512 m1, m0, 0, 4 ; 0 2 1 3
     mov       r1d, 0xaaaaaaaa
     kmovd      k1, r1d
@@ -711,7 +727,9 @@ cglobal sub8x8_dct, 3,3
 %endmacro
 
 cglobal sub16x16_dct
-    psrld    m5, [dct_avx512], 10
+    PIC_BEGIN eax, 0
+    psrld    m5, [pic(dct_avx512)], 10
+    PIC_END
     mov     eax, 0xaaaaaaaa
     kmovd    k1, eax
     mov     eax, 0xf0f0f0f0
@@ -727,7 +745,9 @@ cglobal sub16x16_dct
     RET
 
 cglobal sub8x8_dct_dc, 3,3
-    mova         m3, [dct_avx512]
+    PIC_BEGIN
+    mova         m3, [pic(dct_avx512)]
+    PIC_END
     DCT8x8_LOAD_FENC_AVX512 m0, m3, 0, 4 ; 0 2 1 3
     mov         r1d, 0xaa
     kmovb        k1, r1d
@@ -751,7 +771,9 @@ cglobal sub8x8_dct_dc, 3,3
     RET
 
 cglobal sub8x16_dct_dc, 3,3
-    mova         m5, [dct_avx512]
+    PIC_BEGIN
+    mova         m5, [pic(dct_avx512)]
+    PIC_END
     DCT8x8_LOAD_FENC_AVX512 m0, m5, 0, 8  ; 0 4 1 5
     DCT8x8_LOAD_FENC_AVX512 m1, m5, 4, 12 ; 2 6 3 7
     mov         r1d, 0xaa
@@ -795,8 +817,10 @@ cglobal sub8x16_dct_dc, 3,3
 cglobal add8x8_idct, 2,2
     mova            m1, [r1]
     mova            m2, [r1+64]
-    mova            m3, [dct_avx512]
-    vbroadcasti32x4 m4, [pw_32]
+    PIC_BEGIN
+    mova            m3, [pic(dct_avx512)]
+    vbroadcasti32x4 m4, [pic(pw_32)]
+    PIC_END
     mov            r1d, 0xf0f0f0f0
     kxnorb          k2, k2, k2
     kmovd           k1, r1d
@@ -839,7 +863,9 @@ cglobal %1, 3,3,%7
     pxor m7, m7
 %else
     add r2, 4*FDEC_STRIDE
-    mova m7, [hsub_mul]
+    PIC_BEGIN
+    mova m7, [pic(hsub_mul)]
+    PIC_END
 %endif
 %endif ; !HIGH_BIT_DEPTH
 .skip_prologue:
@@ -975,10 +1001,12 @@ ADD_NxN_IDCT add16x16_idct_avx2, add8x8_idct_avx2, 128, 8, 0, 0
 
 %macro ADD_IDCT_DC 0
 cglobal add8x8_idct_dc, 2,2,7
-    mova        m6, [pw_pixel_max]
+    PIC_BEGIN
+    mova        m6, [pic(pw_pixel_max)]
     pxor        m5, m5
     mova        m3, [r1]
-    paddd       m3, [pd_32]
+    paddd       m3, [pic(pd_32)]
+    PIC_END
     psrad       m3, 6         ; dc0   0 dc1   0 dc2   0 dc3   0
     pshuflw     m4, m3, q2200 ; dc0 dc0 dc1 dc1   _   _   _   _
     pshufhw     m3, m3, q2200 ;   _   _   _   _ dc2 dc2 dc3 dc3
@@ -990,8 +1018,10 @@ cglobal add8x8_idct_dc, 2,2,7
 
 cglobal add16x16_idct_dc, 2,3,8
     mov         r2, 4
-    mova        m6, [pw_pixel_max]
-    mova        m7, [pd_32]
+    PIC_BEGIN
+    mova        m6, [pic(pw_pixel_max)]
+    mova        m7, [pic(pd_32)]
+    PIC_END
     pxor        m5, m5
 .loop:
     mova        m3, [r1]
@@ -1039,7 +1069,9 @@ cglobal add8x8_idct_dc, 2,2
     mova      m0, [r1]
     pxor      m1, m1
     add       r0, FDEC_STRIDE*4
-    paddw     m0, [pw_32]
+    PIC_BEGIN
+    paddw     m0, [pic(pw_32)]
+    PIC_END
     psraw     m0, 6
     psubw     m1, m0
     packuswb  m0, m0
@@ -1059,9 +1091,11 @@ cglobal add8x8_idct_dc, 2,2
     movh     m0, [r1]
     pxor     m1, m1
     add      r0, FDEC_STRIDE*4
-    pmulhrsw m0, [pw_512]
+    PIC_BEGIN
+    pmulhrsw m0, [pic(pw_512)]
     psubw    m1, m0
-    mova     m5, [pb_unpackbd1]
+    mova     m5, [pic(pb_unpackbd1)]
+    PIC_END
     packuswb m0, m0
     packuswb m1, m1
     pshufb   m0, m5
@@ -1095,10 +1129,11 @@ cglobal add8x8_idct_dc, 2,2
 INIT_MMX mmx2
 cglobal add16x16_idct_dc, 2,3
     mov       r2, 4
+    PIC_BEGIN
 .loop:
     mova      m0, [r1]
     pxor      m1, m1
-    paddw     m0, [pw_32]
+    paddw     m0, [pic(pw_32)]
     psraw     m0, 6
     psubw     m1, m0
     packuswb  m0, m0
@@ -1115,6 +1150,7 @@ cglobal add16x16_idct_dc, 2,3
     add       r0, FDEC_STRIDE*4
     dec       r2
     jg .loop
+    PIC_END
     RET
 
 INIT_XMM sse2
@@ -1130,8 +1166,10 @@ cglobal add16x16_idct_dc, 2,2,8
     punpcklwd m0, m0
     punpcklwd m2, m2
     pxor      m3, m3
-    paddw     m0, [pw_32]
-    paddw     m2, [pw_32]
+    PIC_BEGIN
+    paddw     m0, [pic(pw_32)]
+    paddw     m2, [pic(pw_32)]
+    PIC_END
     psraw     m0, 6
     psraw     m2, 6
     psubw     m1, m3, m0
@@ -1156,10 +1194,12 @@ cglobal add16x16_idct_dc, 2,2,8
     mova     m0, [r1]
     add      r1, 16
     pxor     m1, m1
-    pmulhrsw m0, [pw_512]
+    PIC_BEGIN
+    pmulhrsw m0, [pic(pw_512)]
     psubw    m1, m0
-    mova     m5, [pb_unpackbd1]
-    mova     m6, [pb_unpackbd2]
+    mova     m5, [pic(pb_unpackbd1)]
+    mova     m6, [pic(pb_unpackbd2)]
+    PIC_END
     packuswb m0, m0
     packuswb m1, m1
     pshufb   m2, m0, m6
@@ -1196,10 +1236,12 @@ cglobal add16x16_idct_dc, 2,3,6
     add      r0, FDEC_STRIDE*4
     mova     m0, [r1]
     pxor     m1, m1
-    pmulhrsw m0, [pw_512]
+    PIC_BEGIN
+    pmulhrsw m0, [pic(pw_512)]
     psubw    m1, m0
-    mova     m4, [pb_unpackbd1]
-    mova     m5, [pb_unpackbd2]
+    mova     m4, [pic(pb_unpackbd1)]
+    mova     m5, [pic(pb_unpackbd2)]
+    PIC_END
     packuswb m0, m0
     packuswb m1, m1
     pshufb   m2, m0, m4      ; row0, row2
@@ -1320,11 +1362,13 @@ cglobal sub8x16_dct_dc, 3,3
     packssdw   m5, m3
     pshuflw    m0, m5, q2301
     pshufhw    m0, m0, q2301
-    %%sign     m5, [pw_pmpmpmpm]
+    PIC_BEGIN
+    %%sign     m5, [pic(pw_pmpmpmpm)]
     paddw      m0, m5
     pshufd     m1, m0, q1320
     pshufd     m0, m0, q0231
-    %%sign     m1, [pw_ppppmmmm]
+    %%sign     m1, [pic(pw_ppppmmmm)]
+    PIC_END
     paddw      m0, m1
     mova     [r0], m0
     RET
@@ -1356,7 +1400,9 @@ SUB8x16_DCT_DC
 cglobal sub8x8_dct_dc, 3,3,3
     DCTDC_4ROW_SSE2 m1, 0
     DCTDC_4ROW_SSE2 m2, 4
-    mova       m0, [pw_ppmmmmpp]
+    PIC_BEGIN
+    mova       m0, [pic(pw_ppmmmmpp)]
+    PIC_END
     pmaddwd    m1, m0
     pmaddwd    m2, m0
     pshufd     m0, m1, q2200      ; -1 -1 +0 +0
@@ -1377,7 +1423,9 @@ cglobal sub8x16_dct_dc, 3,3,6
     DCTDC_4ROW_SSE2 m2, 4
     DCTDC_4ROW_SSE2 m3, 8
     DCTDC_4ROW_SSE2 m4, 12
-    mova       m0, [pw_ppmmmmpp]
+    PIC_BEGIN
+    mova       m0, [pic(pw_ppmmmmpp)]
+    PIC_END
     pmaddwd    m1, m0
     pmaddwd    m2, m0
     pshufd     m5, m1, q2200      ; -1 -1 +0 +0
@@ -1677,8 +1725,10 @@ SCAN_4x4 16, q , dq , wd
 cglobal zigzag_scan_4x4_frame, 2,2
     mova    m1, [r1+16]
     mova    m0, [r1+ 0]
-    pshufb  m1, [pb_scan4frameb]
-    pshufb  m0, [pb_scan4framea]
+    PIC_BEGIN
+    pshufb  m1, [pic(pb_scan4frameb)]
+    pshufb  m0, [pic(pb_scan4framea)]
+    PIC_END
     psrldq  m2, m1, 6
     palignr m1, m0, 6
     pslldq  m0, 10
@@ -1697,8 +1747,10 @@ INIT_XMM xop
 cglobal zigzag_scan_4x4_frame, 2,2
     mova   m0, [r1+ 0]
     mova   m1, [r1+16]
-    vpperm m2, m0, m1, [pb_scan4frame2a]
-    vpperm m1, m0, m1, [pb_scan4frame2b]
+    PIC_BEGIN
+    vpperm m2, m0, m1, [pic(pb_scan4frame2a)]
+    vpperm m1, m0, m1, [pic(pb_scan4frame2b)]
+    PIC_END
     mova [r0+ 0], m2
     mova [r0+16], m1
     RET
@@ -1863,18 +1915,20 @@ cglobal zigzag_sub_4x4%1_%2, 3,3,8
     punpckldq  m6, m7
     punpcklqdq m0, m2
     punpcklqdq m4, m6
-    mova      m7, [pb_sub4%2]
+    PIC_BEGIN
+    mova      m7, [pic(pb_sub4%2)]
     pshufb    m0, m7
     pshufb    m4, m7
-    mova      m7, [hsub_mul]
+    mova      m7, [pic(hsub_mul)]
     punpckhbw m1, m0, m4
     punpcklbw m0, m4
     pmaddubsw m1, m7
     pmaddubsw m0, m7
 %ifidn %1, ac
     movd     r2d, m0
-    pand      m0, [pb_subacmask]
+    pand      m0, [pic(pb_subacmask)]
 %endif
+    PIC_END
     mova [r0+ 0], m0
     por       m0, m1
     pxor      m2, m2
@@ -1905,7 +1959,9 @@ ZIGZAG_SUB_4x4 ac, field
 %if HIGH_BIT_DEPTH == 0
 INIT_XMM xop
 cglobal zigzag_scan_8x8_field, 2,3,7
-    lea        r2, [pb_scan8field1]
+    PIC_BEGIN r2, 0
+    lea        r2, [pic(pb_scan8field1)]
+    PIC_END
     %define off(m) (r2+m-pb_scan8field1)
     mova       m0, [r1+  0]
     mova       m1, [r1+ 16]
@@ -1947,11 +2003,12 @@ cglobal zigzag_scan_8x8_field, 2,3,7
     mov       r2d, [r1+108]
     mova [r0+112], m3
     mov  [r0+112], r2d
-    %undef off
     RET
 
 cglobal zigzag_scan_8x8_frame, 2,3,8
-    lea        r2, [pb_scan8frame1]
+    PIC_BEGIN r2, 0
+    lea        r2, [pic(pb_scan8frame1)]
+    PIC_END
     %define off(m) (r2+m-pb_scan8frame1)
     mova       m7, [r1+ 16]
     mova       m3, [r1+ 32]
@@ -2027,7 +2084,9 @@ cglobal zigzag_interleave_8x8_cavlc, 3,3,8
     packsswb   m5, m5
 %endif
     pcmpeqb    m5, m0
-    paddb      m5, [pb_1]
+    PIC_BEGIN
+    paddb      m5, [pic(pb_1)]
+    PIC_END
     movd      r0d, m5
     mov    [r2+0], r0w
     shr       r0d, 16
@@ -2078,7 +2137,9 @@ cglobal zigzag_interleave_8x8_cavlc, 3,3,8
     packsswb m2, m2
     packsswb m2, m2
     pcmpeqb  m5, m2
-    paddb    m5, [pb_1]
+    PIC_BEGIN
+    paddb    m5, [pic(pb_1)]
+    PIC_END
     movd    r0d, m5
     mov  [r2+0], r0w
     shr     r0d, 16
@@ -2097,7 +2158,9 @@ cglobal zigzag_interleave_8x8_cavlc, 3,3,6
     mova   m1, [r1+32]
     mova   m2, [r1+64]
     mova   m3, [r1+96]
-    mova   m5, [deinterleave_shufd]
+    PIC_BEGIN
+    mova   m5, [pic(deinterleave_shufd)]
+    PIC_END
     SBUTTERFLY wd, 0, 1, 4
     SBUTTERFLY wd, 2, 3, 4
     SBUTTERFLY wd, 0, 1, 4
@@ -2133,7 +2196,9 @@ cglobal zigzag_interleave_8x8_cavlc, 3,3,6
 %if HIGH_BIT_DEPTH
 INIT_ZMM avx512
 cglobal zigzag_scan_4x4_frame, 2,2
-    mova        m0, [scan_frame_avx512]
+    PIC_BEGIN
+    mova        m0, [pic(scan_frame_avx512)]
+    PIC_END
     vpermd      m0, m0, [r1]
     mova      [r0], m0
     RET
@@ -2146,7 +2211,9 @@ cglobal zigzag_scan_4x4_field, 2,2
     RET
 
 cglobal zigzag_scan_8x8_frame, 2,2
-    psrld       m0, [scan_frame_avx512], 4
+    PIC_BEGIN
+    psrld       m0, [pic(scan_frame_avx512)], 4
+    PIC_END
     mova        m1, [r1+0*64]
     mova        m2, [r1+1*64]
     mova        m3, [r1+2*64]
@@ -2177,7 +2244,9 @@ cglobal zigzag_scan_8x8_frame, 2,2
     RET
 
 cglobal zigzag_scan_8x8_field, 2,2
-    mova        m0, [scan_field_avx512]
+    PIC_BEGIN
+    mova        m0, [pic(scan_field_avx512)]
+    PIC_END
     mova        m1, [r1+0*64]
     mova        m2, [r1+1*64]
     mova        m3, [r1+2*64]
@@ -2200,7 +2269,9 @@ cglobal zigzag_scan_8x8_field, 2,2
     RET
 
 cglobal zigzag_interleave_8x8_cavlc, 3,3
-    mova        m0, [cavlc_shuf_avx512]
+    PIC_BEGIN
+    mova        m0, [pic(cavlc_shuf_avx512)]
+    PIC_END
     mova        m1, [r1+0*64]
     mova        m2, [r1+1*64]
     mova        m3, [r1+2*64]
@@ -2238,7 +2309,9 @@ cglobal zigzag_interleave_8x8_cavlc, 3,3
 %else ; !HIGH_BIT_DEPTH
 INIT_YMM avx512
 cglobal zigzag_scan_4x4_frame, 2,2
-    mova        m0, [scan_frame_avx512]
+    PIC_BEGIN
+    mova        m0, [pic(scan_frame_avx512)]
+    PIC_END
     vpermw      m0, m0, [r1]
     mova      [r0], m0
     RET
@@ -2252,7 +2325,9 @@ cglobal zigzag_scan_4x4_field, 2,2
 
 INIT_ZMM avx512
 cglobal zigzag_scan_8x8_frame, 2,2
-    psrlw       m0, [scan_frame_avx512], 4
+    PIC_BEGIN
+    psrlw       m0, [pic(scan_frame_avx512)], 4
+    PIC_END
 scan8_avx512:
     mova        m1, [r1]
     mova        m2, [r1+64]
@@ -2264,11 +2339,15 @@ scan8_avx512:
     RET
 
 cglobal zigzag_scan_8x8_field, 2,2
-    mova        m0, [scan_field_avx512]
+    PIC_BEGIN
+    mova        m0, [pic(scan_field_avx512)]
+    PIC_END
     jmp scan8_avx512
 
 cglobal zigzag_interleave_8x8_cavlc, 3,3
-    mova       m0, [cavlc_shuf_avx512]
+    PIC_BEGIN
+    mova       m0, [pic(cavlc_shuf_avx512)]
+    PIC_END
     mova       m1, [r1]
     mova       m2, [r1+64]
     psrlw      m3, m0, 6
