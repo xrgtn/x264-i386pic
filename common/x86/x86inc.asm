@@ -415,7 +415,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; If fpush flag is given, use it to override rpicpf which is decided
 ; automatically (rpicpf=0 when regs_used < 3).
 %assign picb 0
-%macro PIC_BEGIN 0-1
+%macro PIC_BEGIN 0-2
     %if PIC == 2
         %if picb == 0
             %if %0 >= 1
