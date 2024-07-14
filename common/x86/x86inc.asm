@@ -422,7 +422,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                 PUSH rpic
             %endif
             %assign lpicno lpicno+1
-            call lpic
+            ; CALL rel32 == e8 00 00 00 00
+            ; CALL rel16 == 66 e8 00 00 (1 byte shorter)
+            call word near lpic
 lpic:       pop rpic
         %endif
         %assign picb picb+1
