@@ -416,9 +416,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                 %define rpic %1
                 PUSH rpic
             %elif regs_used < 3
-                %define rpic r2
+                %define rpic r2 ; edx on i386
             %else
-                %define rpic r7
+                %define rpic r6 ; ebp on i386
                 PUSH rpic
             %endif
             %assign lpicno lpicno+1
