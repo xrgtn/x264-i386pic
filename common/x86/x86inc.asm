@@ -396,6 +396,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                    rpic in functions having regs_used < 3.
 ;                    Expands to nothing on PIC != 2.
 ; * picb             PIC_BEGIN/PIC_END balance counter.
+; * rpicpf           rpic push/pop flag:
+;                    0  don't push rpic in PIC_BEGIN and pop in PIC_END
+;                    1  push rpic in PIC_BEGIN and pop in PIC_END
 ; * rpic             gen-purpose register used as base reg for lpic-relative
 ;                    addressing; if initialized correctly [by PIC_BEGIN],
 ;                    rpic contains address of closest preceding .lpic label.
@@ -407,18 +410,32 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 %define lpic .lpic %+ lpicno
 %assign lpicno 0
 
-; PIC_BEGIN [reg]:   use reg as rpic, or select rpic automatically
+; PIC_BEGIN [reg[, fpush]]
+; Initialize PIC block to use reg as rpic, or select rpic automatically.
+; If fpush flag is given, use it to override rpicpf which is decided
+; automatically (rpicpf=0 when regs_used < 3).
 %assign picb 0
 %macro PIC_BEGIN 0-1
     %if PIC == 2
         %if picb == 0
             %if %0 >= 1
                 %define rpic %1
-                PUSH rpic
+                %assign rpicpf 1
+            %elifndef regs_used
+                %define rpic r6 ; ebp on i386
+                %assign rpicpf 1
             %elif regs_used < 3
                 %define rpic r2 ; edx on i386
+                %assign rpicpf 0
             %else
                 %define rpic r6 ; ebp on i386
+                %assign rpicpf 1
+            %endif
+            ; override rpicpf if fpush is present:
+            %if %0 >=2
+                %assign rpicpf %2
+            %endif
+            %if rpicpf
                 PUSH rpic
             %endif
             %assign lpicno lpicno+1
@@ -438,7 +455,7 @@ lpic:       pop rpic
                 %str(current_function))
         %endif
         %if picb == 0
-            %if regs_used >= 3
+            %if rpicpf
                 POP rpic
             %endif
             %undef rpic
