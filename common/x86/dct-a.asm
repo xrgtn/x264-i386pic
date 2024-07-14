@@ -183,7 +183,9 @@ cglobal dct4x4dc, 1,1
     movq   m2, [r0+16]
     movq   m1, [r0+ 8]
     movq   m0, [r0+ 0]
-    movq   m7, [pw_8000] ; convert to unsigned and back, so that pavgw works
+    PIC_BEGIN
+    movq   m7, [pic(pw_8000)] ; convert to unsigned and back, so that pavgw works
+    PIC_END
     WALSH4_1D  w, 0,1,2,3,4
     TRANSPOSE4x4W 0,1,2,3,4
     SUMSUB_BADC w, 1, 0, 3, 2, 4
