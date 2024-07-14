@@ -882,6 +882,8 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     cglobal_internal 0, %1 %+ SUFFIX, %2
 %endmacro
 %macro cglobal_internal 2-3+
+    %undef num_args
+    %undef regs_used
     annotate_function_size
     %ifndef cglobaled_%2
         %if %1
