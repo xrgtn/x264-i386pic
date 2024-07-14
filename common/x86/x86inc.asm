@@ -411,7 +411,8 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 %assign lpicno 0
 
 ; PIC_BEGIN [reg[, fpush]]
-; Initialize PIC block to use reg as rpic, or select rpic automatically.
+; Initialize PIC block to use reg as rpic, or select rpic automatically (r2
+; if regs_used < 3 or r5 otherwize).
 ; If fpush flag is given, use it to override rpicpf which is decided
 ; automatically (rpicpf=0 when regs_used < 3).
 %assign picb 0
@@ -422,13 +423,13 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                 %define rpic %1
                 %assign rpicpf 1
             %elifndef regs_used
-                %define rpic r6 ; ebp on i386
+                %define rpic r5 ; edi on i386
                 %assign rpicpf 1
             %elif regs_used < 3
                 %define rpic r2 ; edx on i386
                 %assign rpicpf 0
             %else
-                %define rpic r6 ; ebp on i386
+                %define rpic r5 ; edi on i386
                 %assign rpicpf 1
             %endif
             ; override rpicpf if fpush is present:
