@@ -434,10 +434,14 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %endif
             ; override rpicpf if fpush is present:
             %if %0 >=2
-                %assign rpicpf %2
+                %define rpicpf %2
             %endif
-            %if rpicpf
+            %ifidn rpicpf, 0
+                ; do nothing
+            %elifidn rpicpf, 1
                 PUSH rpic
+            %else
+                mov rpicpf, rpic
             %endif
             %assign lpicno lpicno+1
             ; CALL rel32 == e8 00 00 00 00
@@ -456,10 +460,15 @@ lpic:       pop rpic
                 %str(current_function))
         %endif
         %if picb == 0
-            %if rpicpf
+            %ifidn rpicpf, 0
+                ; do nothing
+            %elifidn rpicpf, 1
                 POP rpic
+            %else
+                mov rpic, rpicpf
             %endif
             %undef rpic
+            %undef rpicpf
         %endif
     %endif
 %endmacro
