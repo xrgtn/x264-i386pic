@@ -103,7 +103,7 @@ cextern deinterleave_shufd
     psrad     m0, 6
 %endmacro
 
-%macro BIWEIGHT_START_MMX 0
+%macro BIWEIGHT_START_MMX 0 ; PIC
     movzx  t6d, word r6m
     mov    t7d, 64
     sub    t7d, t6d
@@ -111,7 +111,9 @@ cextern deinterleave_shufd
     add    t6d, t7d
     movd    m3, t6d
     SPLATD  m3, m3
-    mova    m4, [pd_32]
+    PIC_BEGIN r4, 1
+    mova    m4, [pic(pd_32)]
+    PIC_END
     pxor    m5, m5
 %endmacro
 
@@ -128,12 +130,14 @@ cextern deinterleave_shufd
     psraw     m0, 6
 %endmacro
 
-%macro BIWEIGHT_START_MMX 0
+%macro BIWEIGHT_START_MMX 0 ; PIC
     movd    m2, r6m
     SPLATW  m2, m2   ; weight_dst
-    mova    m3, [pw_64]
+    PIC_BEGIN r4, 1
+    mova    m3, [pic(pw_64)]
     psubw   m3, m2   ; weight_src
-    mova    m4, [pw_32] ; rounding
+    mova    m4, [pic(pw_32)] ; rounding
+    PIC_END
     pxor    m5, m5
 %endmacro
 %endif ;HIGH_BIT_DEPTH
@@ -146,13 +150,15 @@ cextern deinterleave_shufd
     pmulhrsw  m0, m4
 %endmacro
 
-%macro BIWEIGHT_START_SSSE3 0
+%macro BIWEIGHT_START_SSSE3 0 ; PIC
     movzx         t6d, byte r6m ; FIXME x86_64
+    PIC_BEGIN r4, 1
 %if mmsize > 16
-    vbroadcasti128 m4, [pw_512]
+    vbroadcasti128 m4, [pic(pw_512)]
 %else
-    mova           m4, [pw_512]
+    mova           m4, [pic(pw_512)]
 %endif
+    PIC_END
     lea           t7d, [t6+(64<<8)]
     shl           t6d, 8
     sub           t7d, t6d
@@ -205,10 +211,12 @@ cextern deinterleave_shufd
 ;-----------------------------------------------------------------------------
 %macro AVG_WEIGHT 1-2 0
 cglobal pixel_avg_weight_w%1
-    BIWEIGHT_START
+    BIWEIGHT_START ; PIC
     AVG_START %2
 %if HIGH_BIT_DEPTH
-    mova    m7, [pw_pixel_max]
+    PIC_BEGIN
+    mova    m7, [pic(pw_pixel_max)]
+    PIC_END
 %endif
 .height_loop:
 %if mmsize==16 && %1==mmsize/(2*SIZEOF_PIXEL)
@@ -259,7 +267,7 @@ AVG_WEIGHT 16, 7
 
 INIT_YMM avx2
 cglobal pixel_avg_weight_w16
-    BIWEIGHT_START
+    BIWEIGHT_START ; PIC
     AVG_START 5
 .height_loop:
     movu     xm0, [t2]
@@ -278,7 +286,7 @@ cglobal pixel_avg_weight_w16
 
 INIT_YMM avx512
 cglobal pixel_avg_weight_w8
-    BIWEIGHT_START
+    BIWEIGHT_START ; PIC
     kxnorb         k1, k1, k1
     kaddb          k1, k1, k1
     AVG_START 5
@@ -310,7 +318,7 @@ cglobal pixel_avg_weight_w8
 
 INIT_ZMM avx512
 cglobal pixel_avg_weight_w16
-    BIWEIGHT_START
+    BIWEIGHT_START ; PIC
     AVG_START 5
 .height_loop:
     movu        xm0, [t2]
@@ -343,12 +351,14 @@ cglobal pixel_avg_weight_w16
 
 %if HIGH_BIT_DEPTH
 ; width
-%macro WEIGHT_START 1
+%macro WEIGHT_START 1 ; PIC
     mova        m0, [r4+ 0]         ; 1<<denom
     mova        m3, [r4+16]
     movd        m2, [r4+32]         ; denom
-    mova        m4, [pw_pixel_max]
-    paddw       m2, [sq_1]          ; denom+1
+    PIC_BEGIN r4, 1
+    mova        m4, [pic(pw_pixel_max)]
+    paddw       m2, [pic(sq_1)]     ; denom+1
+    PIC_END
 %endmacro
 
 ; src1, src2
@@ -365,20 +375,24 @@ cglobal pixel_avg_weight_w16
 %endmacro
 
 ; src, dst, width
-%macro WEIGHT_TWO_ROW 4
+%macro WEIGHT_TWO_ROW 4 ; PIC
     %assign x 0
 %rep (%3+mmsize/2-1)/(mmsize/2)
 %if %3-x/2 <= 4 && mmsize == 16
     WEIGHT      %1+x, %1+r3+x
-    CLIPW         m5, [pb_0], m4
+    PIC_BEGIN r4, 1
+    CLIPW         m5, [pic(pb_0)], m4
+    PIC_END
     movh      [%2+x], m5
     movhps [%2+r1+x], m5
 %else
     WEIGHT      %1+x, %1+x+mmsize/2
     SWAP           5,  7
     WEIGHT   %1+r3+x, %1+r3+x+mmsize/2
-    CLIPW         m5, [pb_0], m4
-    CLIPW         m7, [pb_0], m4
+    PIC_BEGIN r4, 1
+    CLIPW         m5, [pic(pb_0)], m4
+    CLIPW         m7, [pic(pb_0)], m4
+    PIC_END
     mova      [%2+x], m7
     mova   [%2+r1+x], m5
 %endif
@@ -549,29 +563,33 @@ cglobal pixel_avg_weight_w16
 %macro WEIGHTER 1
 cglobal mc_weight_w%1, 6,6,8
     FIX_STRIDES r1, r3
-    WEIGHT_START %1
+    WEIGHT_START %1 ; PIC
 %if cpuflag(ssse3) && HIGH_BIT_DEPTH == 0
     ; we can merge the shift step into the scale factor
     ; if (m3<<7) doesn't overflow an int16_t
     cmp byte [r4+1], 0
     jz .fast
 %endif
+    PIC_BEGIN r6, 1
 .loop:
-    WEIGHT_TWO_ROW r2, r0, %1, 0
+    WEIGHT_TWO_ROW r2, r0, %1, 0 ; PIC
     lea  r0, [r0+r1*2]
     lea  r2, [r2+r3*2]
     sub r5d, 2
     jg .loop
+    PIC_END
     RET
 %if cpuflag(ssse3) && HIGH_BIT_DEPTH == 0
 .fast:
     psllw m3, 7
+    PIC_BEGIN r6, 1
 .fastloop:
-    WEIGHT_TWO_ROW r2, r0, %1, 1
+    WEIGHT_TWO_ROW r2, r0, %1, 1 ; PIC
     lea  r0, [r0+r1*2]
     lea  r2, [r2+r3*2]
     sub r5d, 2
     jg .fastloop
+    PIC_END
     RET
 %endif
 %endmacro
@@ -648,7 +666,9 @@ cglobal mc_offset%2_w%1, 6,6
     mova m2, [r4]
 %if HIGH_BIT_DEPTH
 %ifidn %2,add
-    mova m3, [pw_pixel_max]
+    PIC_BEGIN
+    mova m3, [pic(pw_pixel_max)]
+    PIC_END
 %endif
 %endif
 .loop:
@@ -1170,19 +1190,21 @@ cglobal pixel_avg2_w20, 6,7
 ; pixel_avg, the cacheline check functions calls the SSE2 version if there
 ; is no cacheline split, and the MMX workaround if there is.
 
-%macro INIT_SHIFT 2
+%macro INIT_SHIFT 2 ; PIC
     and    eax, 7
     shl    eax, 3
-    movd   %1, [sw_64]
+    PIC_BEGIN r4, 1
+    movd   %1, [pic(sw_64)] ; %1 is *mm (%1 is dest of psubw op)
+    PIC_END
     movd   %2, eax
     psubw  %1, %2
 %endmacro
 
-%macro AVG_CACHELINE_START 0
+%macro AVG_CACHELINE_START 0 ; PIC
     %assign stack_offset 0
-    INIT_SHIFT mm6, mm7
+    INIT_SHIFT mm6, mm7 ; PIC
     mov    eax, r4m
-    INIT_SHIFT mm4, mm5
+    INIT_SHIFT mm4, mm5 ; PIC
     PROLOGUE 6,6
     and    r2, ~7
     and    r4, ~7
@@ -1335,7 +1357,9 @@ cglobal pixel_avg2_w16_cache64_ssse3
     lea    r7, [avg_w16_addr]
     add    r6, r7
 %else
-    lea    r6, [avg_w16_addr + r6]
+    PIC_BEGIN r5, 1
+    lea    r6, [pic(avg_w16_addr) + r6]
+    PIC_END
 %endif
     TAIL_CALL r6, 1
 
@@ -1674,7 +1698,9 @@ cglobal mc_chroma
     movu       m0, [r3]
     UNPACK_UNALIGNED m0, m1, [r3+2]
     mova       m1, m0
-    pand       m0, [pw_00ff]
+    PIC_BEGIN
+    pand       m0, [pic(pw_00ff)]
+    PIC_END
     psrlw      m1, 8
 %endif ; HIGH_BIT_DEPTH
     pmaddwd    m0, m7
@@ -1691,12 +1717,16 @@ ALIGN 4
     UNPACK_UNALIGNED m0, m1, [r3+r4+2]
     pmullw     m3, m6
     mova       m1, m0
-    pand       m0, [pw_00ff]
+    PIC_BEGIN
+    pand       m0, [pic(pw_00ff)]
+    PIC_END
     psrlw      m1, 8
 %endif ; HIGH_BIT_DEPTH
     pmaddwd    m0, m7
     pmaddwd    m1, m7
-    mova       m2, [pw_32]
+    PIC_BEGIN
+    mova       m2, [pic(pw_32)]
+    PIC_END
     packssdw   m0, m1
     paddw      m2, m3
     mova       m3, m0
@@ -1737,15 +1767,15 @@ ALIGN 4
 %if WIN64
     %define multy0 r4m
 %else
-    %define multy0 [rsp-8]
+    %define multy0 [rsp-8] ; XXX wtf?
 %endif
     mova    multy0, m5
-%else
+%else ; ARCH
     mov       r3m, r3
     %define multy0 r4m
     mova    multy0, m5
 %endif
-%else
+%else ; mmsize
 .width8:
 %if ARCH_X86_64
     %define multy0 m8
@@ -1754,7 +1784,7 @@ ALIGN 4
     %define multy0 r0m
     mova    multy0, m5
 %endif
-%endif
+%endif ; mmsize
     FIX_STRIDES r2
 .loopx:
 %if HIGH_BIT_DEPTH
@@ -1767,8 +1797,10 @@ ALIGN 4
     UNPACK_UNALIGNED m1, m3, [r3+2+mmsize/2]
     psrlw      m2, m0, 8
     psrlw      m3, m1, 8
-    pand       m0, [pw_00ff]
-    pand       m1, [pw_00ff]
+    PIC_BEGIN
+    pand       m0, [pic(pw_00ff)]
+    pand       m1, [pic(pw_00ff)]
+    PIC_END
 %endif
     pmaddwd    m0, m7
     pmaddwd    m2, m7
@@ -1797,8 +1829,10 @@ ALIGN 4
     UNPACK_UNALIGNED m1, m3, [r3+2+mmsize/2]
     psrlw      m2, m0, 8
     psrlw      m3, m1, 8
-    pand       m0, [pw_00ff]
-    pand       m1, [pw_00ff]
+    PIC_BEGIN
+    pand       m0, [pic(pw_00ff)]
+    pand       m1, [pic(pw_00ff)]
+    PIC_END
     pmaddwd    m0, m7
     pmaddwd    m2, m7
     pmaddwd    m1, m7
@@ -1808,7 +1842,9 @@ ALIGN 4
 %endif ; HIGH_BIT_DEPTH
     pmullw     m4, m6
     pmullw     m5, m6
-    mova       m2, [pw_32]
+    PIC_BEGIN
+    mova       m2, [pic(pw_32)]
+    PIC_END
     paddw      m3, m2, m5
     paddw      m2, m4
     mova       m4, m0
@@ -1870,7 +1906,7 @@ ALIGN 4
 %endif
     mov       r5d, r8m
     jmp .loopx
-%endif
+%endif ; mmsize
 
 %if ARCH_X86_64 ; too many regs for x86_32
     RESET_MM_PERMUTATION
@@ -2024,12 +2060,18 @@ cglobal mc_chroma
     lea        t1, [ch_shuf_adj]
     movddup   xm5, [t1 + t0*4]
 %else
-    movddup   xm5, [ch_shuf_adj + t0*4]
+    PIC_BEGIN
+    movddup   xm5, [pic(ch_shuf_adj) + t0*4] ; t0==r0
+    PIC_END
 %endif
-    paddb     xm5, [ch_shuf]
+    PIC_BEGIN
+    paddb     xm5, [pic(ch_shuf)]
+    PIC_END
     and        r3, ~7
-%else
-    mova       m5, [ch_shuf]
+%else ; !cpuflag(cache64)
+    PIC_BEGIN
+    mova       m5, [pic(ch_shuf)]
+    PIC_END
 %endif
     movifnidn  r0, r0mp
     movifnidn  r1, r1mp
@@ -2046,7 +2088,7 @@ cglobal mc_chroma
     %define shiftround m8
     mova       m8, [pw_512]
 %else
-    %define shiftround [pw_512]
+    %define shiftround [pic(pw_512)]
 %endif
     cmp dword r7m, 4
     jg .width8
@@ -2062,7 +2104,9 @@ cglobal mc_chroma
     pmaddubsw  m0, m7
     pmaddubsw  m1, m6
     paddw      m0, m1
+    PIC_BEGIN
     pmulhrsw   m0, shiftround
+    PIC_END
     packuswb   m0, m0
     vextracti128 xm1, m0, 1
     movd     [r0], xm0
@@ -2096,10 +2140,12 @@ cglobal mc_chroma
 
     paddw      m1, m2
     paddw      m3, m4
+    PIC_BEGIN
     pmulhrsw   m1, shiftround
     pmulhrsw   m3, shiftround
     packuswb   m1, m3
-    mova       m2, [deinterleave_shufd]
+    mova       m2, [pic(deinterleave_shufd)]
+    PIC_END
     vpermd     m1, m2, m1
     vextracti128 xm2, m1, 1
     movq      [r0], xm1
@@ -2121,8 +2167,10 @@ cglobal mc_chroma
     pmaddubsw  m3, m6
     paddw      m1, m0
     paddw      m3, m2
+    PIC_BEGIN
     pmulhrsw   m1, shiftround
     pmulhrsw   m3, shiftround
+    PIC_END
     mova       m0, m4
     packuswb   m1, m3
     movd     [r0], m1
@@ -2169,8 +2217,10 @@ cglobal mc_chroma
     pmaddubsw  m3, mult1
     paddw      m0, m2
     paddw      m1, m3
+    PIC_BEGIN
     pmulhrsw   m0, shiftround ; x + 32 >> 6
     pmulhrsw   m1, shiftround
+    PIC_END
     packuswb   m0, m1
     pshufd     m0, m0, q3120
     movq     [r0], m0
@@ -2188,8 +2238,10 @@ cglobal mc_chroma
     pmaddubsw  m3, mult1
     paddw      m2, m4
     paddw      m3, m6
+    PIC_BEGIN
     pmulhrsw   m2, shiftround
     pmulhrsw   m3, shiftround
+    PIC_END
     packuswb   m2, m3
     pshufd     m2, m2, q3120
     movq   [r0+r2], m2
