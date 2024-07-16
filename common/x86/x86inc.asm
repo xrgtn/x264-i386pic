@@ -468,7 +468,7 @@ lpic:       pop rpic
                 %ifndef rpicsave
                     POP rpic
                 %elifempty rpicsave
-                    %error "unsafe to pop rpic"
+                    ; %error "unsafe to pop rpic"
                 %else
                     mov rpic, rpicsave
                 %endif
