@@ -399,6 +399,8 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; * rpicsf           rpic save flag:
 ;                    0  don't save rpic in PIC_BEGIN / restore in PIC_END
 ;                    1  save rpic in PIC_BEGIN and restore in PIC_END
+; * rpicsave         rpic save location ([mem] or reg) if non-empty,
+;                    safeguard against PIC push/pop otherwize.
 ; * rpic             gen-purpose register used as base reg for lpic-relative
 ;                    addressing; if initialized correctly [by PIC_BEGIN],
 ;                    rpic contains address of closest preceding .lpic label.
@@ -436,12 +438,14 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %if %0 >=2
                 %define rpicsf %2
             %endif
-            %ifidn rpicsf, 0
-                ; do nothing
-            %elifidn rpicsf, 1
-                PUSH rpic
-            %else
-                mov rpicsf, rpic
+            %if rpicsf
+                %ifndef rpicsave
+                    PUSH rpic
+                %elifempty rpicsave
+                    %error "unsafe to push rpic"
+                %else
+                    mov rpicsave, rpic
+                %endif
             %endif
             %assign lpicno lpicno+1
             ; CALL rel32 == e8 00 00 00 00
@@ -460,12 +464,14 @@ lpic:       pop rpic
                 %str(current_function))
         %endif
         %if picb == 0
-            %ifidn rpicsf, 0
-                ; do nothing
-            %elifidn rpicsf, 1
-                POP rpic
-            %else
-                mov rpic, rpicsf
+            %if rpicsf
+                %ifndef rpicsave
+                    POP rpic
+                %elifempty rpicsave
+                    %error "unsafe to pop rpic"
+                %else
+                    mov rpic, rpicsave
+                %endif
             %endif
             %undef rpic
             %undef rpicsf
@@ -893,6 +899,7 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
 %macro cglobal_internal 2-3+
     %undef num_args
     %undef regs_used
+    %undef rpicsave
     annotate_function_size
     %ifndef cglobaled_%2
         %if %1
