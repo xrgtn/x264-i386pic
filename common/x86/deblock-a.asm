@@ -729,7 +729,7 @@ DEBLOCK_LUMA_INTRA_64
 ;-----------------------------------------------------------------------------
 ; void deblock_v_luma_intra( uint16_t *pix, intptr_t stride, int alpha, int beta )
 ;-----------------------------------------------------------------------------
-cglobal deblock_v_luma_intra, 4,7,8,0-3*mmsize-%cond((PIC==2), 16, 0)
+cglobal deblock_v_luma_intra, 4,7,8,0-3*mmsize-%cond(PIC==2,mmsize,0)
     LUMA_INTRA_INIT 3
     lea     r4, [r1*4]
     lea     r5, [r1*3]
@@ -741,7 +741,8 @@ cglobal deblock_v_luma_intra, 4,7,8,0-3*mmsize-%cond((PIC==2), 16, 0)
     mova    m1, [r4+r5]   ; p0
     mova    m2, [r0]      ; q0
     mova    m3, [r0+r1]   ; q1
-    PIC_BEGIN r6, [rsp+3*(mmsize)] ; r6 != rstk
+    %define rpicsave [rsp+3*(mmsize)]
+    PIC_BEGIN r6, 1 ; r6 != rstk
     LUMA_INTRA_INTER t4, t5, t6, [r4+r1], [r0+r1*2] ; also uses r2d, r3d
     LUMA_INTRA_P012 m1, m0, t3, [r4], m2, m3, t5, t4, [pic(pw_2)], [r4+r5], [r4+2*r1], [r4+r1]
     mova    t3, [r0+r1*2] ; q2
@@ -756,7 +757,7 @@ cglobal deblock_v_luma_intra, 4,7,8,0-3*mmsize-%cond((PIC==2), 16, 0)
 ;-----------------------------------------------------------------------------
 ; void deblock_h_luma_intra( uint16_t *pix, intptr_t stride, int alpha, int beta )
 ;-----------------------------------------------------------------------------
-cglobal deblock_h_luma_intra, 4,7,8,0-8*mmsize-%cond((PIC==2), 16, 0)
+cglobal deblock_h_luma_intra, 4,7,8,0-8*mmsize-%cond(PIC==2,mmsize,0)
     LUMA_INTRA_INIT 8
 %if mmsize == 8
     lea     r4, [r1*3]
@@ -769,7 +770,8 @@ cglobal deblock_h_luma_intra, 4,7,8,0-8*mmsize-%cond((PIC==2), 16, 0)
 %endif
 .loop:
     LUMA_H_INTRA_LOAD
-    PIC_BEGIN r6, [rsp+8*(mmsize)] ; r6 != rstk
+    %define picsave [rsp+8*(mmsize)]
+    PIC_BEGIN r6, 1 ; r6 != rstk
     LUMA_INTRA_INTER t8, t9, t10, t5, t6 ; uses r2d, r3d ; PIC
 
     LUMA_INTRA_P012 m1, m0, t3, t4, m2, m3, t9, t8, [pic(pw_2)], t8, t5, t11
@@ -1353,7 +1355,7 @@ DEBLOCK_LUMA
 ;-----------------------------------------------------------------------------
 ; void deblock_v8_luma( uint8_t *pix, intptr_t stride, int alpha, int beta, int8_t *tc0 )
 ;-----------------------------------------------------------------------------
-cglobal deblock_%1_luma, 5,5,8,2*(%2)+%cond((PIC==2), 16, 0)
+cglobal deblock_%1_luma, 5,5,8,2*(%2)+%cond(PIC==2,(%2),0)
     lea     r4, [r1*3]
     neg     r4
     add     r4, r0 ; pix-3*stride
@@ -1362,7 +1364,8 @@ cglobal deblock_%1_luma, 5,5,8,2*(%2)+%cond((PIC==2), 16, 0)
     mova    m1, [r4+2*r1] ; p0
     mova    m2, [r0]      ; q0
     mova    m3, [r0+r1]   ; q1
-    PIC_BEGIN r5, [esp+2*(%2)]
+    %define rpicsave [esp+2*(%2)]
+    PIC_BEGIN r5
     LOAD_MASK r2d, r3d ; PIC
 
     mov     r3, r4mp
@@ -1636,7 +1639,7 @@ DEBLOCK_LUMA v, 16
 ; void deblock_v_luma_intra( uint8_t *pix, intptr_t stride, int alpha, int beta )
 ;-----------------------------------------------------------------------------
 cglobal deblock_%1_luma_intra, 4,6,16,0-(1-ARCH_X86_64)*0x50-WIN64*0x10\
-	-%cond((PIC==2), 0x10, 0)
+	-%cond(PIC==2,mmsize,0)
     lea     r4, [r1*4]
     lea     r5, [r1*3] ; 3*stride
     neg     r4
@@ -1663,7 +1666,8 @@ cglobal deblock_%1_luma_intra, 4,6,16,0-(1-ARCH_X86_64)*0x50-WIN64*0x10\
     mova    mask1q, t4
     mova    mask1p, t2
 %else
-    PIC_BEGIN r6, [esp+16*5]
+    %define rpicsave [esp+16*5]
+    PIC_BEGIN r6
     LOAD_MASK r2d, r3d, t5 ; m5=beta-1, t5=alpha-1, m7=mask0 ; PIC
     mova    m4, t5
     mova    mask0, m7
