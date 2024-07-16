@@ -396,9 +396,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                    rpic in functions having regs_used < 3.
 ;                    Expands to nothing on PIC != 2.
 ; * picb             PIC_BEGIN/PIC_END balance counter.
-; * rpicpf           rpic push/pop flag:
-;                    0  don't push rpic in PIC_BEGIN and pop in PIC_END
-;                    1  push rpic in PIC_BEGIN and pop in PIC_END
+; * rpicsf           rpic save flag:
+;                    0  don't save rpic in PIC_BEGIN / restore in PIC_END
+;                    1  save rpic in PIC_BEGIN and restore in PIC_END
 ; * rpic             gen-purpose register used as base reg for lpic-relative
 ;                    addressing; if initialized correctly [by PIC_BEGIN],
 ;                    rpic contains address of closest preceding .lpic label.
@@ -410,38 +410,38 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 %define lpic .lpic %+ lpicno
 %assign lpicno 0
 
-; PIC_BEGIN [reg[, fpush]]
+; PIC_BEGIN [reg[, fsave]]
 ; Initialize PIC block to use reg as rpic, or select rpic automatically (r2
 ; if regs_used < 3 or r5 otherwize).
-; If fpush flag is given, use it to override rpicpf which is decided
-; automatically (rpicpf=0 when regs_used < 3).
+; If fsave flag is given, use it to override rpicsf which is decided
+; automatically (rpicsf=0 when regs_used < 3).
 %assign picb 0
 %macro PIC_BEGIN 0-2
     %if PIC == 2
         %if picb == 0
             %if %0 >= 1
                 %define rpic %1
-                %assign rpicpf 1
+                %assign rpicsf 1
             %elifndef regs_used
                 %define rpic r5 ; edi on i386
-                %assign rpicpf 1
+                %assign rpicsf 1
             %elif regs_used < 3
                 %define rpic r2 ; edx on i386
-                %assign rpicpf 0
+                %assign rpicsf 0
             %else
                 %define rpic r5 ; edi on i386
-                %assign rpicpf 1
+                %assign rpicsf 1
             %endif
-            ; override rpicpf if fpush is present:
+            ; override rpicsf if fsave is present:
             %if %0 >=2
-                %define rpicpf %2
+                %define rpicsf %2
             %endif
-            %ifidn rpicpf, 0
+            %ifidn rpicsf, 0
                 ; do nothing
-            %elifidn rpicpf, 1
+            %elifidn rpicsf, 1
                 PUSH rpic
             %else
-                mov rpicpf, rpic
+                mov rpicsf, rpic
             %endif
             %assign lpicno lpicno+1
             ; CALL rel32 == e8 00 00 00 00
@@ -460,15 +460,15 @@ lpic:       pop rpic
                 %str(current_function))
         %endif
         %if picb == 0
-            %ifidn rpicpf, 0
+            %ifidn rpicsf, 0
                 ; do nothing
-            %elifidn rpicpf, 1
+            %elifidn rpicsf, 1
                 POP rpic
             %else
-                mov rpic, rpicpf
+                mov rpic, rpicsf
             %endif
             %undef rpic
-            %undef rpicpf
+            %undef rpicsf
         %endif
     %endif
 %endmacro
