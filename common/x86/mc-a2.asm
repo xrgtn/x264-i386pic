@@ -1334,7 +1334,7 @@ cglobal store_interleave_chroma, 5,5
 %endmacro ; PLANE_INTERLEAVE
 
 %macro DEINTERLEAVE_START 0 ; PIC
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
 %if mmsize == 32
     vbroadcasti128 m4, [pic(deinterleave_shuf)]
 %elif HIGH_BIT_DEPTH
@@ -1481,11 +1481,11 @@ cglobal load_deinterleave_chroma_fenc, 4,5
 
 %macro PLANE_DEINTERLEAVE_RGB_CORE 9 ; pw, i_dsta, i_dstb, i_dstc, i_src, w, h, tmp1, tmp2 ; PIC*
 %if mmsize == 32
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     vbroadcasti128 m3, [pic(deinterleave_rgb_shuf)+(%1-3)*16]
     PIC_END
 %elif cpuflag(ssse3)
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova        m3, [pic(deinterleave_rgb_shuf)+(%1-3)*16]
     PIC_END
 %endif

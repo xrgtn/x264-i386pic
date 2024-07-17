@@ -109,7 +109,7 @@ cextern pb_unpackbd1
 %macro DEBLOCK_P0_Q0 7 ; PIC
     psubw   %3, %4
     pxor    %7, %7
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     paddw   %3, [pic(pw_4)]
     PIC_END
     psubw   %7, %5
@@ -117,7 +117,7 @@ cextern pb_unpackbd1
     psllw   %6, 2
     paddw   %3, %6
     psraw   %3, 3
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova    %6, [pic(pw_pixel_max)]
     PIC_END
     CLIPW   %3, %7, %5
@@ -515,7 +515,7 @@ DEBLOCK_LUMA_64
     mova    %2, t0        ; mask0
     psrlw   t3, 2
 %endif
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     paddw   t3, [pic(pw_2)] ; alpha/4+2
     PIC_END
     DIFF_LT m1, m2, t3, t2, t0 ; t2 = |p0-q0| < alpha/4+2
@@ -742,7 +742,7 @@ cglobal deblock_v_luma_intra, 4,7,8,0-3*mmsize-%cond(PIC==2,mmsize,0)
     mova    m2, [r0]      ; q0
     mova    m3, [r0+r1]   ; q1
     %define rpicsave [rsp+3*(mmsize)]
-    PIC_BEGIN r6, 1 ; r6 != rstk
+    PIC_BEGIN r6 ; r6 != rstk
     LUMA_INTRA_INTER t4, t5, t6, [r4+r1], [r0+r1*2] ; also uses r2d, r3d
     LUMA_INTRA_P012 m1, m0, t3, [r4], m2, m3, t5, t4, [pic(pw_2)], [r4+r5], [r4+2*r1], [r4+r1]
     mova    t3, [r0+r1*2] ; q2
@@ -771,7 +771,7 @@ cglobal deblock_h_luma_intra, 4,7,8,0-8*mmsize-%cond(PIC==2,mmsize,0)
 .loop:
     LUMA_H_INTRA_LOAD
     %define picsave [rsp+8*(mmsize)]
-    PIC_BEGIN r6, 1 ; r6 != rstk
+    PIC_BEGIN r6 ; r6 != rstk
     LUMA_INTRA_INTER t8, t9, t10, t5, t6 ; uses r2d, r3d ; PIC
 
     LUMA_INTRA_P012 m1, m0, t3, t4, m2, m3, t9, t8, [pic(pw_2)], t8, t5, t11
@@ -1161,7 +1161,7 @@ DEBLOCK_LUMA_INTRA
     SPLATW   m4, m4
     SPLATW   m5, m5
 %endif
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova     m6, [pic(pb_1)]
     PIC_END
     psubusb  m4, m6              ; alpha - 1
@@ -1183,7 +1183,7 @@ DEBLOCK_LUMA_INTRA
 ; clobbers: m0,3-6
 %macro DEBLOCK_P0_Q0 0 ; PIC
     pxor    m5, m1, m2   ; p0^q0
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pand    m5, [pic(pb_1)] ; (p0^q0)&1
     pcmpeqb m4, m4
     pxor    m3, m4
@@ -1213,7 +1213,7 @@ DEBLOCK_LUMA_INTRA
     pavgb   %6, m1, m2
     pavgb   %2, %6       ; avg(p2,avg(p0,q0))
     pxor    %6, %3
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pand    %6, [pic(pb_1)] ; (p2^avg(p0,q0))&1
     PIC_END
     psubusb %2, %6       ; (p2+((p0+q0+1)>>1))>>1
@@ -1518,7 +1518,7 @@ DEBLOCK_LUMA v, 16
     mova  t3, t2
     mova  t4, t2
     psrlw t2, 1
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pavgb t2, mpb_0 ; mpb_0: m14 or [pic(pb_0)]
     pxor  t2, t0    ; t2 is *mm (dest in pavgb op), t0 is *mm (same reason)
     pand  t2, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
@@ -1536,14 +1536,14 @@ DEBLOCK_LUMA v, 16
 %endif
     paddb t3, t3
     psubb t3, t2 ; p2+2*p1+2*p0+2*q0+q1
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pand  t2, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
     PIC_END
     psubb t1, t2
     pavgb t1, p1
     pavgb t1, t5 ; (((p2+q1)/2 + p1+1)/2 + (p0+q0+1)/2 + 1)/2
     psrlw t3, 2
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pavgb t3, mpb_0 ; mpb_0: m14 or [pic(pb_0)]
     pxor  t3, t1    ; t3, t1 are *mm regs (dests in pavg op)
     pand  t3, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
@@ -1552,7 +1552,7 @@ DEBLOCK_LUMA v, 16
 
     pxor  t3, p0, q1
     pavgb t2, p0, q1
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pand  t3, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
     PIC_END
     psubb t2, t3
@@ -1573,7 +1573,7 @@ DEBLOCK_LUMA v, 16
     paddb t2, t2
     paddb t2, t4 ; 2*p3+3*p2+p1+p0+q0
     psrlw t2, 2
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pavgb t2, mpb_0 ; mpb_0: m14 or [pic(pb_0)]
     pxor  t2, t1    ; t2 & t1 are *mm regs (dests in pavgb op)
     pand  t2, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
@@ -1781,7 +1781,7 @@ DEBLOCK_LUMA_INTRA v8
 ; in: %1=p0, %2=q0, %3=p1, %4=q1, %5=mask, %6=tmp, %7=tmp
 ; out: %1=p0', %2=q0'
 %macro CHROMA_DEBLOCK_P0_Q0_INTRA 7 ; PIC
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova    %6, [pic(pw_2)]
     PIC_END
     paddw   %6, %3
@@ -2223,7 +2223,7 @@ DEBLOCK_H_CHROMA_422
 ; out: p0 = (p0 + q1 + 2*p1 + 2) >> 2
 %macro CHROMA_INTRA_P0 3 ; PIC
     pxor    m4, %1, %3
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pand    m4, [pic(pb_1)] ; m4 = (p0^q1)&1
     PIC_END
     pavgb   %1, %3
@@ -2236,7 +2236,7 @@ DEBLOCK_H_CHROMA_422
 
 %macro DEBLOCK_CHROMA_INTRA_BODY 0
 cglobal chroma_intra_body
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     LOAD_MASK r2d, r3d ; PIC
     mova   m5, m1
     mova   m6, m2
@@ -2439,7 +2439,7 @@ cglobal deblock_strength, 5,5,7
     LOAD_BYTES_XMM nnz, 1
     por       m0, m2
     por       m1, m2
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova      m6, [pic(pb_1)]
     pminub    m0, m6
     pminub    m1, m6
@@ -2481,7 +2481,7 @@ DEBLOCK_STRENGTH_XMM
 
 INIT_YMM avx2
 cglobal deblock_strength, 5,5,8
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova            m6, [pic(load_bytes_ymm_shuf)]
     PIC_END
     ; Prepare mv comparison register
@@ -2528,7 +2528,7 @@ cglobal deblock_strength, 5,5,8
 
     ; Check nnz
     LOAD_BYTES_YMM nnz
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova            m2, [pic(pb_1)]
     PIC_END
     por             m0, m1
@@ -2537,7 +2537,7 @@ cglobal deblock_strength, 5,5,8
     paddb           m0, m0 ; nnz ? 2 : 0
     pmaxub          m0, m4
     vextracti128 [bs1], m0, 1
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pshufb         xm0, [pic(transpose_shuf)]
     PIC_END
     mova         [bs0], xm0
@@ -2550,7 +2550,7 @@ cglobal deblock_strength, 5,5,8
 
 INIT_ZMM avx512
 cglobal deblock_strength, 5,5
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova            m6, [pic(load_bytes_zmm_shuf)]
     PIC_END
     shl            r4d, 8
@@ -2588,7 +2588,7 @@ cglobal deblock_strength, 5,5
     jge .lists
 
     LOAD_BYTES_ZMM nnz
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova           ym2, [pic(pb_1)]
     PIC_END
     vptestmw        k1, m1, m1
@@ -2596,7 +2596,7 @@ cglobal deblock_strength, 5,5
     vpaddb         ym0 {k1}{z}, ym2, ym2 ; nnz ? 2 : 0
     vpmaxub        ym0 {k2}, ym2         ; mv  ? 1 : 0
     vextracti128 [bs1], ym0, 1
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     pshufb         xm0, [pic(transpose_shuf)]
     PIC_END
     mova         [bs0], xm0

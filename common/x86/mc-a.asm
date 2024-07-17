@@ -111,7 +111,7 @@ cextern deinterleave_shufd
     add    t6d, t7d
     movd    m3, t6d
     SPLATD  m3, m3
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova    m4, [pic(pd_32)]
     PIC_END
     pxor    m5, m5
@@ -133,7 +133,7 @@ cextern deinterleave_shufd
 %macro BIWEIGHT_START_MMX 0 ; PIC
     movd    m2, r6m
     SPLATW  m2, m2   ; weight_dst
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova    m3, [pic(pw_64)]
     psubw   m3, m2   ; weight_src
     mova    m4, [pic(pw_32)] ; rounding
@@ -152,7 +152,7 @@ cextern deinterleave_shufd
 
 %macro BIWEIGHT_START_SSSE3 0 ; PIC
     movzx         t6d, byte r6m ; FIXME x86_64
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
 %if mmsize > 16
     vbroadcasti128 m4, [pic(pw_512)]
 %else
@@ -355,7 +355,7 @@ cglobal pixel_avg_weight_w16
     mova        m0, [r4+ 0]         ; 1<<denom
     mova        m3, [r4+16]
     movd        m2, [r4+32]         ; denom
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     mova        m4, [pic(pw_pixel_max)]
     paddw       m2, [pic(sq_1)]     ; denom+1
     PIC_END
@@ -380,7 +380,7 @@ cglobal pixel_avg_weight_w16
 %rep (%3+mmsize/2-1)/(mmsize/2)
 %if %3-x/2 <= 4 && mmsize == 16
     WEIGHT      %1+x, %1+r3+x
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     CLIPW         m5, [pic(pb_0)], m4
     PIC_END
     movh      [%2+x], m5
@@ -389,7 +389,7 @@ cglobal pixel_avg_weight_w16
     WEIGHT      %1+x, %1+x+mmsize/2
     SWAP           5,  7
     WEIGHT   %1+r3+x, %1+r3+x+mmsize/2
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     CLIPW         m5, [pic(pb_0)], m4
     CLIPW         m7, [pic(pb_0)], m4
     PIC_END
@@ -570,7 +570,7 @@ cglobal mc_weight_w%1, 6,6,8
     cmp byte [r4+1], 0
     jz .fast
 %endif
-    PIC_BEGIN r6, 1
+    PIC_BEGIN r6
 .loop:
     WEIGHT_TWO_ROW r2, r0, %1, 0 ; PIC
     lea  r0, [r0+r1*2]
@@ -582,7 +582,7 @@ cglobal mc_weight_w%1, 6,6,8
 %if cpuflag(ssse3) && HIGH_BIT_DEPTH == 0
 .fast:
     psllw m3, 7
-    PIC_BEGIN r6, 1
+    PIC_BEGIN r6
 .fastloop:
     WEIGHT_TWO_ROW r2, r0, %1, 1 ; PIC
     lea  r0, [r0+r1*2]
@@ -1193,7 +1193,7 @@ cglobal pixel_avg2_w20, 6,7
 %macro INIT_SHIFT 2 ; PIC
     and    eax, 7
     shl    eax, 3
-    PIC_BEGIN r4, 1
+    PIC_BEGIN r4
     movd   %1, [pic(sw_64)] ; %1 is *mm (%1 is dest of psubw op)
     PIC_END
     movd   %2, eax
@@ -1357,7 +1357,7 @@ cglobal pixel_avg2_w16_cache64_ssse3
     lea    r7, [avg_w16_addr]
     add    r6, r7
 %else
-    PIC_BEGIN r5, 1
+    PIC_BEGIN r5
     lea    r6, [pic(avg_w16_addr) + r6]
     PIC_END
 %endif
