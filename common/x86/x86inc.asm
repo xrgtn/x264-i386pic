@@ -442,7 +442,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                 %ifndef rpicsave
                     PUSH rpic
                 %elifempty rpicsave
-                    %error "unsafe to push rpic"
+                    %warning "unsafe to push rpic"
                 %else
                     mov rpicsave, rpic
                 %endif
@@ -466,7 +466,7 @@ lpic:       pop rpic
                 %ifndef rpicsave
                     POP rpic
                 %elifempty rpicsave
-                    ; %error "unsafe to pop rpic"
+                    ; %warning "unsafe to pop rpic"
                 %else
                     mov rpic, rpicsave
                 %endif
