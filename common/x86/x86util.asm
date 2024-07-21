@@ -545,23 +545,23 @@
 %if %0==6 ; less dependency if we have two tmp
     PIC_BEGIN r4
     mova   m%5, mask   ; ff00
+    PIC_END
     mova   m%6, m%4    ; x5x4
     psll%1 m%4, shift  ; x4..
     pand   m%6, m%5    ; x5..
     pandn  m%5, m%3    ; ..x0
     psrl%1 m%3, shift  ; ..x1
-    PIC_END
     por    m%4, m%5    ; x4x0
     por    m%3, m%6    ; x5x1
 %else ; more dependency, one insn less. sometimes faster, sometimes not
     mova   m%5, m%4    ; x5x4
-    PIC_BEGIN r4
     psll%1 m%4, shift  ; x4..
     pxor   m%4, m%3    ; (x4^x1)x0
+    PIC_BEGIN r4
     pand   m%4, mask   ; (x4^x1)..
+    PIC_END
     pxor   m%3, m%4    ; x4x0
     psrl%1 m%4, shift  ; ..(x1^x4)
-    PIC_END
     pxor   m%5, m%4    ; x5x1
     SWAP   %4, %3, %5
 %endif
@@ -607,7 +607,7 @@
     SWAP    %4, %5
 %endmacro
 
-%macro HADAMARD 5-6 ; PIC*
+%macro HADAMARD 5-6 ; PIC*[1,2]
 ; %1=distance in words (0 for vertical pass, 1/2/4 for horizontal passes)
 ; %2=sumsub/max/amax (sum and diff / maximum / maximum of absolutes)
 ; %3/%4: regs
@@ -652,48 +652,48 @@
 %endmacro
 
 
-%macro HADAMARD2_2D 6-7 sumsub ; PIC*
-    HADAMARD 0, sumsub, %1, %2, %5 ; PIC*
-    HADAMARD 0, sumsub, %3, %4, %5 ; PIC*
+%macro HADAMARD2_2D 6-7 sumsub
+    HADAMARD 0, sumsub, %1, %2, %5 ; HADAMARD 0 is non-PIC
+    HADAMARD 0, sumsub, %3, %4, %5
     SBUTTERFLY %6, %1, %2, %5
 %ifnum %7
-    HADAMARD 0, amax, %1, %2, %5, %7 ; PIC*
+    HADAMARD 0, amax, %1, %2, %5, %7
 %else
-    HADAMARD 0, %7, %1, %2, %5 ; PIC*
+    HADAMARD 0, %7, %1, %2, %5
 %endif
     SBUTTERFLY %6, %3, %4, %5
 %ifnum %7
-    HADAMARD 0, amax, %3, %4, %5, %7 ; PIC*
+    HADAMARD 0, amax, %3, %4, %5, %7
 %else
-    HADAMARD 0, %7, %3, %4, %5 ; PIC*
+    HADAMARD 0, %7, %3, %4, %5
 %endif
 %endmacro
 
-%macro HADAMARD4_2D 5-6 sumsub ; PIC*
-    HADAMARD2_2D %1, %2, %3, %4, %5, wd ; PIC*
-    HADAMARD2_2D %1, %3, %2, %4, %5, dq, %6 ; PIC*
+%macro HADAMARD4_2D 5-6 sumsub
+    HADAMARD2_2D %1, %2, %3, %4, %5, wd
+    HADAMARD2_2D %1, %3, %2, %4, %5, dq, %6
     SWAP %2, %3
 %endmacro
 
-%macro HADAMARD4_2D_SSE 5-6 sumsub ; PIC*
-    HADAMARD  0, sumsub, %1, %2, %5 ; 1st V row 0 + 1 ; PIC*
-    HADAMARD  0, sumsub, %3, %4, %5 ; 1st V row 2 + 3 ; PIC*
+%macro HADAMARD4_2D_SSE 5-6 sumsub
+    HADAMARD  0, sumsub, %1, %2, %5 ; 1st V row 0 + 1 ; HADAMARD 0 is non-PIC
+    HADAMARD  0, sumsub, %3, %4, %5 ; 1st V row 2 + 3
     SBUTTERFLY   wd, %1, %2, %5     ; %1: m0 1+0 %2: m1 1+0
     SBUTTERFLY   wd, %3, %4, %5     ; %3: m0 3+2 %4: m1 3+2
-    HADAMARD2_2D %1, %3, %2, %4, %5, dq ; PIC*
+    HADAMARD2_2D %1, %3, %2, %4, %5, dq
     SBUTTERFLY  qdq, %1, %2, %5
-    HADAMARD  0, %6, %1, %2, %5     ; 2nd H m1/m0 row 0+1 ; PIC*
+    HADAMARD  0, %6, %1, %2, %5     ; 2nd H m1/m0 row 0+1
     SBUTTERFLY  qdq, %3, %4, %5
-    HADAMARD  0, %6, %3, %4, %5     ; 2nd H m1/m0 row 2+3 ; PIC*
+    HADAMARD  0, %6, %3, %4, %5     ; 2nd H m1/m0 row 2+3
 %endmacro
 
-%macro HADAMARD8_2D 9-10 sumsub ; PIC*
-    HADAMARD2_2D %1, %2, %3, %4, %9, wd ; PIC*
-    HADAMARD2_2D %5, %6, %7, %8, %9, wd ; PIC*
-    HADAMARD2_2D %1, %3, %2, %4, %9, dq ; PIC*
-    HADAMARD2_2D %5, %7, %6, %8, %9, dq ; PIC*
-    HADAMARD2_2D %1, %5, %3, %7, %9, qdq, %10 ; PIC*
-    HADAMARD2_2D %2, %6, %4, %8, %9, qdq, %10 ; PIC*
+%macro HADAMARD8_2D 9-10 sumsub
+    HADAMARD2_2D %1, %2, %3, %4, %9, wd
+    HADAMARD2_2D %5, %6, %7, %8, %9, wd
+    HADAMARD2_2D %1, %3, %2, %4, %9, dq
+    HADAMARD2_2D %5, %7, %6, %8, %9, dq
+    HADAMARD2_2D %1, %5, %3, %7, %9, qdq, %10
+    HADAMARD2_2D %2, %6, %4, %8, %9, qdq, %10
 %ifnidn %10, amax
     SWAP %2, %5
     SWAP %4, %7
@@ -716,7 +716,7 @@
     HADAMARD 1, amax, %4, %8, %9, %5 ; PIC*
 %endmacro
 
-%macro SUMSUB2_AB 4 ; PIC[xop]
+%macro SUMSUB2_AB 4 ; PIC*[xop]
 %if cpuflag(xop)
     PIC_BEGIN r4
     pmacs%1%1 m%4, m%3, [pic(p%1_m2)], m%2
@@ -754,17 +754,17 @@
 %endif
 %endmacro
 
-%macro DCT4_1D 5 ; PIC[xop]
+%macro DCT4_1D 5 ; PIC*[xop]
 %ifnum %5
     SUMSUB_BADC w, %4, %1, %3, %2, %5
     SUMSUB_BA   w, %3, %4, %5
-    SUMSUB2_AB  w, %1, %2, %5 ; PIC[xop]
+    SUMSUB2_AB  w, %1, %2, %5 ; PIC*[xop]
     SWAP %1, %3, %4, %5, %2
 %else
     SUMSUB_BADC w, %4, %1, %3, %2
     SUMSUB_BA   w, %3, %4
     mova     [%5], m%2
-    SUMSUB2_AB  w, %1, [%5], %2 ; PIC[xop]
+    SUMSUB2_AB  w, %1, [%5], %2 ; PIC*[xop]
     SWAP %1, %3, %4, %2
 %endif
 %endmacro
@@ -861,7 +861,7 @@
     movhps [%5+%6+56], m%4
 %endmacro
 
-%macro STORE_IDCT 4
+%macro STORE_IDCT 4; r0
     movhps [r0-4*FDEC_STRIDE], %1
     movh   [r0-3*FDEC_STRIDE], %1
     movhps [r0-2*FDEC_STRIDE], %2
@@ -872,7 +872,7 @@
     movh   [r0+3*FDEC_STRIDE], %4
 %endmacro
 
-%macro LOAD_DIFF_8x4P 7-11 r0,r2,0,1 ; 4x dest, 2x temp, 2x pointer, increment, aligned?
+%macro LOAD_DIFF_8x4P 7-11 r0,r2,0,1 ; 4x dest, 2x temp, 2x pointer, increment, aligned? ; r1,r3..r5
     LOAD_DIFF m%1, m%5, m%7, [%8],      [%9],      %11
     LOAD_DIFF m%2, m%6, m%7, [%8+r1],   [%9+r3],   %11
     LOAD_DIFF m%3, m%5, m%7, [%8+2*r1], [%9+2*r3], %11
@@ -884,7 +884,7 @@
 %endmacro
 
 ; 2xdst, 2xtmp, 2xsrcrow
-%macro LOAD_DIFF16x2_AVX2 6
+%macro LOAD_DIFF16x2_AVX2 6 ; r1, r2
     pmovzxbw m%1, [r1+%5*FENC_STRIDE]
     pmovzxbw m%2, [r1+%6*FENC_STRIDE]
     pmovzxbw m%3, [r2+(%5-4)*FDEC_STRIDE]
