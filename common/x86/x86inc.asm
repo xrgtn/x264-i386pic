@@ -404,39 +404,42 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; * rpic             gen-purpose register used as base reg for lpic-relative
 ;                    addressing; if initialized correctly [by PIC_BEGIN],
 ;                    rpic contains address of closest preceding .lpic label.
+; * rpicl            lpic label used to initialize rpic
 ; * lpic             returns local label in .lpicN format, N is 1,2,..
 ; * lpicno           current/latest lpic number.
 
-
-%define pic(a) %cond(PIC == 2, ((rpic)+((a)-lpic)), (a))
+%define pic(a) %cond((PIC==2) || ((PIC==1) && %isdef(rpic)), \
+    ((rpic)+((a)-rpicl)), (a))
 %define lpic .lpic %+ lpicno
 %assign lpicno 0
 
-; PIC_BEGIN [reg[, fsave]]
+; PIC_BEGIN [reg[, fsave[, label]]]
 ; Initialize PIC block to use reg as rpic, or select rpic automatically (r2
 ; if regs_used < 3 or r5 otherwize).
 ; If fsave flag is given, use it to override rpicsf which is decided
 ; automatically (rpicsf=0 when regs_used < 3).
 %assign picb 0
-%macro PIC_BEGIN 0-2
+%macro PIC_BEGIN 0-3
     %if PIC == 2
         %if picb == 0
             %if %0 >= 1
-                %define rpic %1
+                %xdefine rpic %1
                 %assign rpicsf 1
             %elifndef regs_used
-                %define rpic r5 ; edi on i386
+                %xdefine rpic r5 ; edi on i386
                 %assign rpicsf 1
             %elif regs_used < 3
-                %define rpic r2 ; edx on i386
+                %xdefine rpic r2 ; edx on i386
                 %assign rpicsf 0
             %else
-                %define rpic r5 ; edi on i386
+                %xdefine rpic r5 ; edi on i386
                 %assign rpicsf 1
             %endif
             ; override rpicsf if fsave is present:
             %if %0 >=2
-                %define rpicsf %2
+                %ifnempty %2
+                    %xdefine rpicsf %2
+                %endif
             %endif
             %if rpicsf
                 %ifndef rpicsave
@@ -450,6 +453,13 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %assign lpicno lpicno+1
             call lpic
 lpic:       pop rpic
+            %if %0 >= 3
+                %xdefine rpicl (%3)
+                ; add rpic, rpicl - lpic
+                sub rpic, lpic - rpicl
+            %else
+                %xdefine rpicl lpic
+            %endif
         %endif
         %assign picb picb+1
     %endif
@@ -472,8 +482,21 @@ lpic:       pop rpic
                 %endif
             %endif
             %undef rpic
+            %undef rpicl
             %undef rpicsf
         %endif
+    %endif
+%endmacro
+
+; Because x86_64 doesn't support [rip+index_reg*N+offset] addressing mode,
+; separate general purpose register needs to be used for indexed PIC memory
+; access. PIC64_LEA helps to initialize rpic/rpicl so that the following
+; pic() macros will expand to rpic-based address.
+%macro PIC64_LEA 2 ; reg, label
+    %if ARCH_X86_64
+	%xdefine rpic %1
+	%xdefine rpicl (%2)
+        lea rpic2, [rpic2l] ; lea rpic2, [rip+rpic2l-$]
     %endif
 %endmacro
 
