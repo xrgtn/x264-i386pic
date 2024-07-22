@@ -927,6 +927,8 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     %undef num_args
     %undef regs_used
     %undef rpicsave
+    %undef rpic
+    %undef rpicl
     annotate_function_size
     %ifndef cglobaled_%2
         %if %1
