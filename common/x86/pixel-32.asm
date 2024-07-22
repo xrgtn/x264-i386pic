@@ -35,7 +35,7 @@ INIT_MMX mmx2
 
 %if HIGH_BIT_DEPTH == 0
 
-%macro LOAD_DIFF_4x8P 1 ; dx
+%macro LOAD_DIFF_4x8P 1 ; dx ; r0..r5, stack[spill]
     LOAD_DIFF  m0, m7, none, [r0+%1],      [r2+%1]
     LOAD_DIFF  m1, m6, none, [r0+%1+r1],   [r2+%1+r3]
     LOAD_DIFF  m2, m7, none, [r0+%1+r1*2], [r2+%1+r3*2]
@@ -50,7 +50,7 @@ INIT_MMX mmx2
     movq m5, [spill]
 %endmacro
 
-%macro SUM4x8_MM 0
+%macro SUM4x8_MM 0 ; stack[spill]
     movq [spill],   m6
     movq [spill+8], m7
     ABSW2    m0, m1, m0, m1, m6, m7
@@ -78,7 +78,7 @@ cglobal pixel_sa8d_8x8_internal
 %define args  esp+0x74
 %define spill esp+0x60 ; +16
 %define trans esp+0    ; +96
-    LOAD_DIFF_4x8P 0
+    LOAD_DIFF_4x8P 0 ; r0..r5, stack[spill]
     HADAMARD8_V 0, 1, 2, 3, 4, 5, 6, 7
 
     movq   [spill], m1
@@ -96,7 +96,7 @@ cglobal pixel_sa8d_8x8_internal
 
     mov    r0, [args+4]
     mov    r2, [args]
-    LOAD_DIFF_4x8P 4
+    LOAD_DIFF_4x8P 4 ; r0..r5, stack[spill]
     HADAMARD8_V 0, 1, 2, 3, 4, 5, 6, 7
 
     movq   [spill], m7
@@ -113,7 +113,7 @@ cglobal pixel_sa8d_8x8_internal
     movq   m3, [trans+0x18]
 
     HADAMARD8_V 0, 1, 2, 3, 4, 5, 6, 7
-    SUM4x8_MM
+    SUM4x8_MM ; stack[spill]
     movq   [trans], m0
 
     movq   m0, [trans+0x20]
@@ -126,7 +126,7 @@ cglobal pixel_sa8d_8x8_internal
     movq   m7, [trans+0x58]
 
     HADAMARD8_V 0, 1, 2, 3, 4, 5, 6, 7
-    SUM4x8_MM
+    SUM4x8_MM ; stack[spill]
 
     pavgw  m0, [trans]
     add   esp, 0x7c
@@ -154,7 +154,7 @@ cglobal pixel_sa8d_8x8_internal
     %8          %3, %6
 %endmacro
 
-%macro LOAD_4x8P 1 ; dx
+%macro LOAD_4x8P 1 ; dx ; r0, stack[spill]
     pxor        m7, m7
     movd        m6, [r0+%1+7*FENC_STRIDE]
     movd        m0, [r0+%1+0*FENC_STRIDE]
