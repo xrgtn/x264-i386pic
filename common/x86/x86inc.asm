@@ -493,10 +493,16 @@ lpic:       pop rpic
 ; access. PIC64_LEA helps to initialize rpic/rpicl so that the following
 ; pic() macros will expand to rpic-based address.
 %macro PIC64_LEA 2 ; reg, label
-    %if ARCH_X86_64
+    %if ARCH_X86_64 && (PIC==1)
 	%xdefine rpic %1
 	%xdefine rpicl (%2)
         lea rpic2, [rpic2l] ; lea rpic2, [rip+rpic2l-$]
+    %endif
+%endmacro
+%macro PIC64_END 0
+    %if ARCH_X86_64 && (PIC==1)
+	%undef rpic
+	%undef rpicl
     %endif
 %endmacro
 
