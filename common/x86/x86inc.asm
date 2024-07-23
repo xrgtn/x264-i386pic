@@ -385,7 +385,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                       do nothing, same as in mode 0)
 ;                    2  i386 PIC mode: enable PIC_BEGIN, PIC_END,
 ;                       pic() etc)
-; * pic(abs_addr)    expands to ((rpic)+((abs_addr)-.lpicN)) when PIC == 2.
+; * pic(abs_addr)    expands to (rpic+(abs_addr)-rpicl) when PIC == 2.
 ;                    Expands to (abs_addr) on PIC != 2.
 ; * PIC_BEGIN        stores previous value of rpic on stack and initializes
 ;                    rpic if rpic isn't already defined. As optimization,
@@ -407,11 +407,13 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; * rpicl            lpic label used to initialize rpic
 ; * lpic             returns local label in .lpicN format, N is 1,2,..
 ; * lpicno           current/latest lpic number.
+; * pic64            0  expand pic(a) to (a) in PIC mode 1
+;                    1  expand pic(a) to (rpic+(a)-rpicl) in PIC mode 1
 
-%define pic(a) %cond((PIC==2) || ((PIC==1) && %isdef(rpic)), \
-    ((rpic)+((a)-rpicl)), (a))
+%define pic(a) %cond((PIC==2) || ((PIC==1) && pic64), (rpic+(a)-rpicl), (a))
 %define lpic .lpic %+ lpicno
 %assign lpicno 0
+%assign pic64 0
 
 ; PIC_BEGIN [reg[, fsave[, label]]]
 ; Initialize PIC block to use reg as rpic, or select rpic automatically (r2
@@ -494,15 +496,10 @@ lpic:       pop rpic
 ; pic() macros will expand to rpic-based address.
 %macro PIC64_LEA 2 ; reg, label
     %if ARCH_X86_64 && (PIC==1)
-        %xdefine rpic %1
+        %xdefine rpic  %1
         %xdefine rpicl (%2)
+        %assign  pic64 1
         lea rpic2, [rpic2l] ; lea rpic2, [rip+rpic2l-$]
-    %endif
-%endmacro
-%macro PIC64_END 0
-    %if ARCH_X86_64 && (PIC==1)
-        %undef rpic
-        %undef rpicl
     %endif
 %endmacro
 
@@ -927,8 +924,7 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     %undef num_args
     %undef regs_used
     %undef rpicsave
-    %undef rpic
-    %undef rpicl
+    %assign pic64 0
     annotate_function_size
     %ifndef cglobaled_%2
         %if %1

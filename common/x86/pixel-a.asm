@@ -6075,7 +6075,7 @@ ads_mvs_ssse3:
     add       r6, 8
     cmp       r6, r5
     jl .loop
-    PIC64_END
+    %assign pic64 0
     PIC_END
     movifnidn eax, r0d
     RET
