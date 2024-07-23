@@ -2612,7 +2612,7 @@ cglobal intra_satd_x3_4x4, 3,3
 ;-----------------------------------------------------------------------------
 cglobal intra_satd_x3_16x16, 0,5
     %assign %%o0 (gprsize) + (stack_offset) ; gprsize is for retaddr
-    ; Add gprsize for rpic and 120 for sums, top_1d & left_1d and align:
+    ; Add gprsize for rpic and 120 for sums, top_1d & left_1d and align:
     %assign %%pad ((%%o0 + (gprsize) + 120 + 15) & ~15) - %%o0
     SUB        rsp, %%pad      ; alloc rpicsave/sums/top_1d/left_1d area
     %define rpicsave [rsp+120] ; size gprsize
@@ -2738,7 +2738,7 @@ cglobal intra_satd_x3_16x16, 0,5
 ;-----------------------------------------------------------------------------
 cglobal intra_satd_x3_8x8c, 0,6
     %assign %%o0 (gprsize) + (stack_offset) ; gprsize is for retaddr
-    ; Add gprsize for rpic and 72 for sums, dc_1d, top_1d & left_1d:
+    ; Add gprsize for rpic and 72 for sums, dc_1d, top_1d & left_1d:
     %assign %%pad ((%%o0 + (gprsize) + 72 + 15) & ~15) - %%o0
     SUB        rsp, %%pad ; alloc rpicsave/sums/dc_1d/top_1d/left_1d area
 %define  rpicsave [rsp+72] ; gprsize
@@ -3055,7 +3055,7 @@ cglobal intra_satd_x3_8x8c, 0,6
 %if notcpuflag(xop)
 cglobal intra_sad_x9_4x4, 3,4,9
     %assign %%o0 (gprsize) + (stack_offset) ; gprsize is for retaddr
-    ; Add gprsize for rpic and 0xb0 for pred_buf2+pred_buf, and align:
+    ; Add gprsize for rpic and 0xb0 for pred_buf2+pred_buf, and align:
     %assign %%pad ((%%o0 + (gprsize) + 0xb0 + 15) & ~15) - %%o0
     SUB       rsp, %%pad ; alloc rpicsave/pred_buf area
     %define rpicsave  [rsp+0xb0] ; gprsize
@@ -3228,7 +3228,7 @@ ALIGN 16
 %else ; !ARCH_X86_64
 cglobal intra_satd_x9_4x4, 3,4,8
     %assign %%o0 (gprsize) + (stack_offset) ; gprsize is for retaddr
-    ; Add gprsize for rpic and 0x110 for spill/pred_buf/fenc_buf, and align:
+    ; Add gprsize for rpic and 0x110 for spill/pred_buf/fenc_buf, and align:
     %assign %%pad ((%%o0 + (gprsize) + 0x110 + 15) & ~15) - %%o0
     SUB       rsp, %%pad ; alloc rpicsave/spill/pred_buf/fenc_buf area
     %define rpicsave [rsp+0x110] ; gprsize
@@ -3359,7 +3359,7 @@ cglobal intra_sad_x9_8x8, 5,6,9
     %assign padbase 0x10
 %endif
     %assign %%o0 (gprsize) + (stack_offset) ; gprsize is for retaddr
-    ; Add gprsize for rpic and 0x240+padbase for pred+padbase, and align:
+    ; Add gprsize for rpic and 0x240+padbase for pred+padbase, and align:
     %assign %%pad ((%%o0 + (gprsize) + 0x240 + padbase + 15) & ~15) - %%o0
     %define rpicsave  [rsp+0x240+padbase]         ; gprsize
     %define pred(i,j) [rsp+i*0x40+j*0x10+padbase] ; size 0x240+padbase?
