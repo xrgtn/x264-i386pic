@@ -204,10 +204,12 @@ cglobal intra_sa8d_x3_8x8, 2,3
     punpckhbw m1, m7
     punpcklbw m2, m7
     punpckhbw m3, m7
-    movq      m6, [pw_ppmmppmm]
+    PIC_BEGIN r2, 0 ; r2 not yet used here, and not loaded from arg
+    movq      m6, [pic(pw_ppmmppmm)]
     HSUMSUB2  m0, m2, q1032, m6
     HSUMSUB2  m1, m3, q1032, m6
-    movq      m6, [pw_pmpmpmpm]
+    movq      m6, [pic(pw_pmpmpmpm)]
+    PIC_END
     HSUMSUB2  m0, m2, q2301, m6
     HSUMSUB2  m1, m3, q2301, m6
     movq      m4, m0
