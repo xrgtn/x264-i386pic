@@ -215,11 +215,12 @@ cglobal_label .skip_prologue
     IDCT8_1D d,0,1,2,3,4,5,6,7,[r1-128],[r1+0]
     mova   [r1+0], m4
     TRANSPOSE4x4D 0,1,2,3,4
-    paddd      m0, [pd_32]
+    PIC_BEGIN
+    paddd      m0, [pic(pd_32)]
     mova       m4, [r1+0]
     SPILL_SHUFFLE   r1, 0,1,2,3, -8,-6,-4,-2
     TRANSPOSE4x4D 4,5,6,7,3
-    paddd      m4, [pd_32]
+    paddd      m4, [pic(pd_32)]
     SPILL_SHUFFLE   r1, 4,5,6,7, 0,2,4,6
     UNSPILL_SHUFFLE r1, 1,2,3,5,6,7, -5,-3,-1,3,5,7
     IDCT8_1D d,0,1,2,3,4,5,6,7,[r1-112],[r1+16]
@@ -235,7 +236,8 @@ cglobal_label .skip_prologue
     UNSPILL_SHUFFLE r1, 1,2,3,5,6,7, 2,4,6,3,5,7
     IDCT8_1D d,0,1,2,3,4,5,6,7,[r1+0],[r1+16]
     SPILL_SHUFFLE   r1, 7,6,5, 7,6,5
-    mova       m7, [pw_pixel_max]
+    mova       m7, [pic(pw_pixel_max)]
+    PIC_END
     pxor       m6, m6
     mova       m5, [r1-128]
     STORE_DIFF m5, m0, m6, m7, [r0+0*FDEC_STRIDEB]
@@ -443,7 +445,9 @@ cglobal sub8x8_dct, 3,3
     add r2, 4*FDEC_STRIDE
 cglobal_label .skip_prologue
 %if cpuflag(ssse3)
-    mova m7, [hsub_mul]
+    PIC_BEGIN
+    mova m7, [pic(hsub_mul)]
+    PIC_END
 %endif
     LOAD_DIFF8x4 0, 1, 2, 3, 6, 7, r1, r2-4*FDEC_STRIDE
     SPILL r0, 1,2
@@ -475,7 +479,9 @@ cglobal sub8x8_dct8, 3,3
     add r2, 4*FDEC_STRIDE
 cglobal_label .skip_prologue
 %if cpuflag(ssse3)
-    mova m7, [hsub_mul]
+    PIC_BEGIN
+    mova m7, [pic(hsub_mul)]
+    PIC_END
     LOAD_DIFF8x4 0, 1, 2, 3, 4, 7, r1, r2-4*FDEC_STRIDE
     SPILL r0, 0,1
     SWAP 1, 7
@@ -538,9 +544,11 @@ cglobal_label .skip_prologue
     SPILL r1, 0
     TRANSPOSE2x4x4W 4,5,6,7,0
     UNSPILL r1, 0
-    paddw m0, [pw_32]
+    PIC_BEGIN
+    paddw m0, [pic(pw_32)]
     IDCT4_1D w,0,1,2,3,r1
-    paddw m4, [pw_32]
+    paddw m4, [pic(pw_32)]
+    PIC_END
     IDCT4_1D w,4,5,6,7,r1
     SPILL r1, 6,7
     pxor m7, m7
@@ -569,7 +577,9 @@ cglobal_label .skip_prologue
     IDCT8_1D   w,0,1,2,3,4,5,6,7,[r1+0],[r1+64]
     SPILL r1, 6
     TRANSPOSE8x8W 0,1,2,3,4,5,6,7,[r1+0x60],[r1+0x40],1
-    paddw      m0, [pw_32]
+    PIC_BEGIN
+    paddw      m0, [pic(pw_32)]
+    PIC_END
     SPILL r1, 0
     IDCT8_1D   w,0,1,2,3,4,5,6,7,[r1+0],[r1+64]
     SPILL r1, 6,7
