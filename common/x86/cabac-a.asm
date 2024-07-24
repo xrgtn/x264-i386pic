@@ -116,9 +116,16 @@ struc cb
     .state: resb 1024
 endstruc
 
-%macro LOAD_GLOBAL 3-5 0 ; dst, base, off1, off2, tmp
+%macro LOAD_GLOBAL 6 ; dst, offs, base, index, tmp, rpic
 %if ARCH_X86_64 == 0
-    movzx %1, byte [%2+%3+%4]
+    PIC_BEGIN %6
+    %ifidn %4, 0
+        movzx %1, byte [pic(%2)+%3]
+    %else
+        add %6, %3
+        movzx %1, byte [pic(%2)+%4]
+    %endif
+    PIC_END
 %elifidn %4, 0
     movzx %1, byte [%2+%3+r7-$$]
 %else
@@ -153,8 +160,8 @@ cglobal cabac_encode_decision_%1, 1,7
 %if ARCH_X86_64
     lea    r7, [$$]
 %endif
-    LOAD_GLOBAL t5d, cabac_range_lps-4, t5, t4*2, t4
-    LOAD_GLOBAL t4d, cabac_transition, t2, t6*2, t4
+    LOAD_GLOBAL t5d, cabac_range_lps-4, t5, t4*2, t4, t0
+    LOAD_GLOBAL t4d, cabac_transition, t2, t6*2, t4, t0
     and   t6d, 1
     sub   t3d, t5d
     cmp   t6d, t2d
@@ -172,7 +179,7 @@ cglobal cabac_encode_decision_%1, 1,7
     shlx  t6d, t6d, t3d
 %else
     shr   t3d, 3
-    LOAD_GLOBAL t3d, cabac_renorm_shift, t3
+    LOAD_GLOBAL t3d, cabac_renorm_shift, t3, 0, 0, t0
     shl   t4d, t3b
     shl   t6d, t3b
 %endif
@@ -765,4 +772,4 @@ INIT_XMM avx2
 CABAC_RESIDUAL coeff_last_avx2
 INIT_XMM avx512
 CABAC_RESIDUAL coeff_last_avx512
-%endif
+%endif ; ARCH_X86_64
