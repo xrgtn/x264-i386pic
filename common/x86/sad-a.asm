@@ -45,7 +45,7 @@ cextern sw_64
 ; SAD MMX
 ;=============================================================================
 
-%macro SAD_INC_2x16P 0
+%macro SAD_INC_2x16P 0 ; r0..r3
     movq    mm1,    [r0]
     movq    mm2,    [r0+8]
     movq    mm3,    [r0+r1]
@@ -62,7 +62,7 @@ cextern sw_64
     paddw   mm0,    mm3
 %endmacro
 
-%macro SAD_INC_2x8P 0
+%macro SAD_INC_2x8P 0 ; r0..r3
     movq    mm1,    [r0]
     movq    mm2,    [r0+r1]
     psadbw  mm1,    [r2]
@@ -73,7 +73,7 @@ cextern sw_64
     lea     r2,     [r2+2*r3]
 %endmacro
 
-%macro SAD_INC_2x4P 0
+%macro SAD_INC_2x4P 0 ; r0..r3
     movd    mm1,    [r0]
     movd    mm2,    [r2]
     punpckldq mm1,  [r0+r1]
@@ -91,7 +91,7 @@ cextern sw_64
 cglobal pixel_sad_%1x%2_mmx2, 4,4
     pxor    mm0, mm0
 %rep %2/2
-    SAD_INC_2x%1P
+    SAD_INC_2x%1P ; r0..r3
 %endrep
     movd    eax, mm0
     RET
@@ -110,7 +110,7 @@ SAD  4,  4
 ; SAD XMM
 ;=============================================================================
 
-%macro SAD_END_SSE2 0
+%macro SAD_END_SSE2 0 ; eax, RET
     MOVHL   m1, m0
     paddw   m0, m1
     movd   eax, m0
@@ -163,7 +163,7 @@ cglobal pixel_sad_16x%1, 4,4
     %assign %%i %%i+1
 %endrep
 %endif
-    SAD_END_SSE2
+    SAD_END_SSE2 ; eax, RET
 %endmacro
 
 INIT_XMM sse2
@@ -176,7 +176,7 @@ INIT_XMM sse2, aligned
 SAD_W16 16
 SAD_W16 8
 
-%macro SAD_INC_4x8P_SSE 1
+%macro SAD_INC_4x8P_SSE 1 ; r0..r3
     movq    m1, [r0]
     movq    m2, [r0+r1]
     lea     r0, [r0+2*r1]
@@ -198,7 +198,7 @@ SAD_W16 8
 INIT_XMM
 ;Even on Nehalem, no sizes other than 8x16 benefit from this method.
 cglobal pixel_sad_8x16_sse2, 4,4
-    SAD_INC_4x8P_SSE 0
+    SAD_INC_4x8P_SSE 0 ; r0..r3
     SAD_INC_4x8P_SSE 1
     SAD_INC_4x8P_SSE 1
     SAD_INC_4x8P_SSE 1
@@ -262,13 +262,13 @@ SAD_W48_AVX512 8,  4, q
 SAD_W48_AVX512 8,  8, q
 SAD_W48_AVX512 8, 16, q
 
-%macro SAD_W16_AVX512_START 1 ; h
+%macro SAD_W16_AVX512_START 1 ; h ; r1, jne pixel_sad_16x%1_sse2.skip_prologue
     cmp  r1d, FENC_STRIDE                  ; optimized for the most common fenc case, which
     jne pixel_sad_16x%1_sse2.skip_prologue ; has the rows laid out contiguously in memory
     lea   r1, [3*r3]
 %endmacro
 
-%macro SAD_W16_AVX512_END 0
+%macro SAD_W16_AVX512_END 0 ; eax, RET
     paddd          m0, m1
     paddd          m0, m2
     paddd          m0, m3
@@ -286,7 +286,7 @@ SAD_W48_AVX512 8, 16, q
 
 INIT_YMM avx512
 cglobal pixel_sad_16x8, 4,4
-    SAD_W16_AVX512_START 8
+    SAD_W16_AVX512_START 8 ; r1, jne pixel_sad_16x8_sse2.skip_prologue
     movu         xm0, [r2]
     vinserti128   m0, [r2+r3], 1
     psadbw        m0, [r0+0*32]
@@ -300,11 +300,11 @@ cglobal pixel_sad_16x8, 4,4
     movu         xm3, [r2+2*r3]
     vinserti128   m3, [r2+r1], 1
     psadbw        m3, [r0+3*32]
-    SAD_W16_AVX512_END
+    SAD_W16_AVX512_END ; eax, RET
 
 INIT_ZMM avx512
 cglobal pixel_sad_16x16, 4,4
-    SAD_W16_AVX512_START 16
+    SAD_W16_AVX512_START 16 ; r1, jne pixel_sad_16x16_sse2.skip_prologue
     movu          xm0, [r2]
     vinserti128   ym0, [r2+r3],   1
     movu          xm1, [r2+4*r3]
@@ -328,7 +328,7 @@ cglobal pixel_sad_16x16, 4,4
     psadbw         m2, [r0+2*64]
     vinserti32x4   m3, [r2+r1],   3
     psadbw         m3, [r0+3*64]
-    SAD_W16_AVX512_END
+    SAD_W16_AVX512_END ; eax, RET
 
 ;-----------------------------------------------------------------------------
 ; void pixel_vsad( pixel *src, intptr_t stride );
@@ -457,7 +457,7 @@ cglobal intra_sad_x3_4x4_mmx2, 3,3
 ;m5 = pixel row
 ;m4 = temp
 
-%macro INTRA_SAD_HVDC_ITER 2
+%macro INTRA_SAD_HVDC_ITER 2 ; r0
     movq      m5, [r0+FENC_STRIDE*%1]
     movq      m4, m5
     psadbw    m4, m0
@@ -479,12 +479,14 @@ cglobal intra_sad_x3_8x8_mmx2, 3,3
     psadbw    m0, m7
     psadbw    m1, m6
     paddw     m0, m1
-    paddw     m0, [pw_8]
+    PIC_BEGIN
+    paddw     m0, [pic(pw_8)]
+    PIC_END
     psrlw     m0, 4
     punpcklbw m0, m0
     pshufw    m0, m0, q0000 ;DC prediction
     punpckhbw m7, m7
-    INTRA_SAD_HVDC_ITER 0, q3333
+    INTRA_SAD_HVDC_ITER 0, q3333 ; r0
     INTRA_SAD_HVDC_ITER 1, q2222
     INTRA_SAD_HVDC_ITER 2, q1111
     INTRA_SAD_HVDC_ITER 3, q0000
@@ -503,7 +505,7 @@ cglobal intra_sad_x3_8x8_mmx2, 3,3
 ; void intra_sad_x3_8x8c( uint8_t *fenc, uint8_t *fdec, int res[3] );
 ;-----------------------------------------------------------------------------
 
-%macro INTRA_SAD_HV_ITER 1
+%macro INTRA_SAD_HV_ITER 1 ; r0, r1
 %if cpuflag(ssse3)
     movd        m1, [r1 + FDEC_STRIDE*(%1-4) - 4]
     movd        m3, [r1 + FDEC_STRIDE*(%1-3) - 4]
@@ -534,7 +536,9 @@ cglobal intra_sad_x3_8x8c, 3,3
     movq        m6, [r1 - FDEC_STRIDE]
     add         r1, FDEC_STRIDE*4
 %if cpuflag(ssse3)
-    movq        m7, [pb_3]
+    PIC_BEGIN
+    movq        m7, [pic(pb_3)]
+    PIC_END
 %endif
     INTRA_SAD_HV_ITER 0
     INTRA_SAD_HV_ITER 2
@@ -573,7 +577,9 @@ cglobal intra_sad_x3_8x8c, 3,3
     pavgw       m0, m7 ; s0+s2, s1, s3, s1+s3
 %if cpuflag(ssse3)
     movq2dq   xmm0, m0
-    pshufb    xmm0, [pb_shuf8x8c]
+    PIC_BEGIN
+    pshufb    xmm0, [pic(pb_shuf8x8c)]
+    PIC_END
     movq      xmm1, [r0+FENC_STRIDE*0]
     movq      xmm2, [r0+FENC_STRIDE*1]
     movq      xmm3, [r0+FENC_STRIDE*2]
@@ -646,14 +652,16 @@ cglobal intra_sad_x3_8x8c, 3,3,7
     pinsrb      xm1, [r1 + FDEC_STRIDE* 2], 2
     punpcklqdq  xm0, xm1                        ; H0 _ H1 _
     vinserti128  m3, m3, xm0, 1                 ; V0 V1 H0 H1
-    pshufb      xm0, [hpred_shuf]               ; H00224466 H11335577
+    PIC_BEGIN
+    pshufb      xm0, [pic(hpred_shuf)]          ; H00224466 H11335577
     psadbw       m3, m5                         ; s0 s1 s2 s3
     vpermq       m4, m3, q3312                  ; s2 s1 s3 s3
     vpermq       m3, m3, q1310                  ; s0 s1 s3 s1
     paddw        m3, m4
     psrlw        m3, 2
     pavgw        m3, m5                         ; s0+s2 s1 s3 s1+s3
-    pshufb       m3, [pb_shuf8x8c2]             ; DC0 _ DC1 _
+    pshufb       m3, [pic(pb_shuf8x8c2)]        ; DC0 _ DC1 _
+    PIC_END
     vpblendd     m3, m3, m2, 11001100b          ; DC0 V DC1 V
     vinserti128  m1, m3, xm3, 1                 ; DC0 V DC0 V
     vperm2i128   m6, m3, m3, q0101              ; DC1 V DC1 V
@@ -705,7 +713,9 @@ cglobal intra_sad_x3_16x16, 3,5,8
     paddw   mm0, mm1
     movd    r3d, mm0
 %if cpuflag(ssse3)
-    mova  m1, [pb_3]
+    PIC_BEGIN
+    mova  m1, [pic(pb_3)]
+    PIC_END
 %endif
 %assign x 0
 %rep 16
@@ -830,7 +840,7 @@ cglobal intra_sad_x3_16x16, 3,5,6
 ; SAD x3/x4 MMX
 ;=============================================================================
 
-%macro SAD_X3_START_1x8P 0
+%macro SAD_X3_START_1x8P 0 ; r0..r3
     movq    mm3,    [r0]
     movq    mm0,    [r1]
     movq    mm1,    [r2]
@@ -840,7 +850,7 @@ cglobal intra_sad_x3_16x16, 3,5,6
     psadbw  mm2,    mm3
 %endmacro
 
-%macro SAD_X3_1x8P 2
+%macro SAD_X3_1x8P 2 ; r0..r3
     movq    mm3,    [r0+%1]
     movq    mm4,    [r1+%2]
     movq    mm5,    [r2+%2]
@@ -853,7 +863,7 @@ cglobal intra_sad_x3_16x16, 3,5,6
     paddw   mm2,    mm6
 %endmacro
 
-%macro SAD_X3_START_2x4P 3
+%macro SAD_X3_START_2x4P 3 ; r0..r4
     movd      mm3,  [r0]
     movd      %1,   [r1]
     movd      %2,   [r2]
@@ -867,11 +877,11 @@ cglobal intra_sad_x3_16x16, 3,5,6
     psadbw    %3,   mm3
 %endmacro
 
-%macro SAD_X3_2x16P 1
+%macro SAD_X3_2x16P 1 ; r0..r4
 %if %1
-    SAD_X3_START_1x8P
+    SAD_X3_START_1x8P ; r0..r3
 %else
-    SAD_X3_1x8P 0, 0
+    SAD_X3_1x8P 0, 0 ; r0..r3
 %endif
     SAD_X3_1x8P 8, 8
     SAD_X3_1x8P FENC_STRIDE, r4
@@ -882,11 +892,11 @@ cglobal intra_sad_x3_16x16, 3,5,6
     lea     r3, [r3+2*r4]
 %endmacro
 
-%macro SAD_X3_2x8P 1
+%macro SAD_X3_2x8P 1 ; r0..r4
 %if %1
-    SAD_X3_START_1x8P
+    SAD_X3_START_1x8P ; r0..r3
 %else
-    SAD_X3_1x8P 0, 0
+    SAD_X3_1x8P 0, 0 ; r0..r3
 %endif
     SAD_X3_1x8P FENC_STRIDE, r4
     add     r0, 2*FENC_STRIDE
@@ -895,9 +905,9 @@ cglobal intra_sad_x3_16x16, 3,5,6
     lea     r3, [r3+2*r4]
 %endmacro
 
-%macro SAD_X3_2x4P 1
+%macro SAD_X3_2x4P 1 ; r0..r4
 %if %1
-    SAD_X3_START_2x4P mm0, mm1, mm2
+    SAD_X3_START_2x4P mm0, mm1, mm2 ; r0..r4
 %else
     SAD_X3_START_2x4P mm4, mm5, mm6
     paddw     mm0,  mm4
@@ -910,7 +920,7 @@ cglobal intra_sad_x3_16x16, 3,5,6
     lea     r3, [r3+2*r4]
 %endmacro
 
-%macro SAD_X4_START_1x8P 0
+%macro SAD_X4_START_1x8P 0 ; r0..r4
     movq    mm7,    [r0]
     movq    mm0,    [r1]
     movq    mm1,    [r2]
@@ -922,7 +932,7 @@ cglobal intra_sad_x3_16x16, 3,5,6
     psadbw  mm3,    mm7
 %endmacro
 
-%macro SAD_X4_1x8P 2
+%macro SAD_X4_1x8P 2 ; r0..r4
     movq    mm7,    [r0+%1]
     movq    mm4,    [r1+%2]
     movq    mm5,    [r2+%2]
@@ -937,7 +947,7 @@ cglobal intra_sad_x3_16x16, 3,5,6
     paddw   mm3,    mm7
 %endmacro
 
-%macro SAD_X4_START_2x4P 0
+%macro SAD_X4_START_2x4P 0 ; r0..r5
     movd      mm7,  [r0]
     movd      mm0,  [r1]
     movd      mm1,  [r2]
@@ -954,7 +964,7 @@ cglobal intra_sad_x3_16x16, 3,5,6
     psadbw    mm3,  mm7
 %endmacro
 
-%macro SAD_X4_INC_2x4P 0
+%macro SAD_X4_INC_2x4P 0 ; r0..r5
     movd      mm7,  [r0]
     movd      mm4,  [r1]
     movd      mm5,  [r2]
@@ -975,11 +985,11 @@ cglobal intra_sad_x3_16x16, 3,5,6
     paddw     mm3,  mm5
 %endmacro
 
-%macro SAD_X4_2x16P 1
+%macro SAD_X4_2x16P 1 ; r0..r5
 %if %1
-    SAD_X4_START_1x8P
+    SAD_X4_START_1x8P ; r0..r4
 %else
-    SAD_X4_1x8P 0, 0
+    SAD_X4_1x8P 0, 0 ; r0..r4
 %endif
     SAD_X4_1x8P 8, 8
     SAD_X4_1x8P FENC_STRIDE, r5
@@ -991,11 +1001,11 @@ cglobal intra_sad_x3_16x16, 3,5,6
     lea     r4, [r4+2*r5]
 %endmacro
 
-%macro SAD_X4_2x8P 1
+%macro SAD_X4_2x8P 1 ; r0..r5
 %if %1
-    SAD_X4_START_1x8P
+    SAD_X4_START_1x8P ; r0..r4
 %else
-    SAD_X4_1x8P 0, 0
+    SAD_X4_1x8P 0, 0 ; r0..r4
 %endif
     SAD_X4_1x8P FENC_STRIDE, r5
     add     r0, 2*FENC_STRIDE
@@ -1005,11 +1015,11 @@ cglobal intra_sad_x3_16x16, 3,5,6
     lea     r4, [r4+2*r5]
 %endmacro
 
-%macro SAD_X4_2x4P 1
+%macro SAD_X4_2x4P 1 ; r0..r5
 %if %1
-    SAD_X4_START_2x4P
+    SAD_X4_START_2x4P ; r0..r5
 %else
-    SAD_X4_INC_2x4P
+    SAD_X4_INC_2x4P ; r0..r5
 %endif
     add     r0, 2*FENC_STRIDE
     lea     r1, [r1+2*r5]
@@ -1018,7 +1028,7 @@ cglobal intra_sad_x3_16x16, 3,5,6
     lea     r4, [r4+2*r5]
 %endmacro
 
-%macro SAD_X3_END 0
+%macro SAD_X3_END 0 ; r0*[!UNIX64], r5*[UNIX64], r5mp*[!UNIX64], RET
 %if UNIX64
     movd    [r5+0], mm0
     movd    [r5+4], mm1
@@ -1032,7 +1042,7 @@ cglobal intra_sad_x3_16x16, 3,5,6
     RET
 %endmacro
 
-%macro SAD_X4_END 0
+%macro SAD_X4_END 0 ; r0, r6mp, RET
     mov     r0, r6mp
     movd    [r0+0], mm0
     movd    [r0+4], mm1
@@ -1044,14 +1054,17 @@ cglobal intra_sad_x3_16x16, 3,5,6
 ;-----------------------------------------------------------------------------
 ; void pixel_sad_x3_16x16( uint8_t *fenc, uint8_t *pix0, uint8_t *pix1,
 ;                          uint8_t *pix2, intptr_t i_stride, int scores[3] )
+; void pixel_sad_x4_16x16( uint8_t *fenc, uint8_t *pix0, uint8_t *pix1,
+;                          uint8_t *pix2, uint8_t *pix3, intptr_t i_stride,
+;                          int scores[4] )
 ;-----------------------------------------------------------------------------
 %macro SAD_X 3
 cglobal pixel_sad_x%1_%2x%3_mmx2, %1+2, %1+2
-    SAD_X%1_2x%2P 1
+    SAD_X%1_2x%2P 1 ; X3: r0..r4 / X4: r0..r5
 %rep %3/2-1
     SAD_X%1_2x%2P 0
 %endrep
-    SAD_X%1_END
+    SAD_X%1_END ; r0*, r5*, r5mp*, r6mp*, RET
 %endmacro
 
 INIT_MMX
@@ -1076,7 +1089,7 @@ SAD_X 4,  4,  4
 ; SAD x3/x4 XMM
 ;=============================================================================
 
-%macro SAD_X3_START_1x16P_SSE2 0
+%macro SAD_X3_START_1x16P_SSE2 0 ; r0..r3
     mova     m2, [r0]
 %if cpuflag(avx)
     psadbw   m0, m2, [r1]
@@ -1092,7 +1105,7 @@ SAD_X 4,  4,  4
 %endif
 %endmacro
 
-%macro SAD_X3_1x16P_SSE2 2
+%macro SAD_X3_1x16P_SSE2 2 ; r0..r3
     mova     m3, [r0+%1]
 %if cpuflag(avx)
     psadbw   m4, m3, [r1+%2]
@@ -1117,12 +1130,12 @@ SAD_X 4,  4,  4
     DECLARE_REG_TMP 5
 %endif
 
-%macro SAD_X3_4x16P_SSE2 2
+%macro SAD_X3_4x16P_SSE2 2 ; r0..r4, t0
 %if %1==0
     lea  t0, [r4*3]
-    SAD_X3_START_1x16P_SSE2
+    SAD_X3_START_1x16P_SSE2 ; r0..r3
 %else
-    SAD_X3_1x16P_SSE2 FENC_STRIDE*(0+(%1&1)*4), r4*0
+    SAD_X3_1x16P_SSE2 FENC_STRIDE*(0+(%1&1)*4), r4*0 ; r0..r3
 %endif
     SAD_X3_1x16P_SSE2 FENC_STRIDE*(1+(%1&1)*4), r4*1
     SAD_X3_1x16P_SSE2 FENC_STRIDE*(2+(%1&1)*4), r4*2
@@ -1137,7 +1150,7 @@ SAD_X 4,  4,  4
 %endif
 %endmacro
 
-%macro SAD_X3_START_2x8P_SSE2 0
+%macro SAD_X3_START_2x8P_SSE2 0 ; r0..r4
     movq     m3, [r0]
     movq     m0, [r1]
     movq     m1, [r2]
@@ -1151,7 +1164,7 @@ SAD_X 4,  4,  4
     psadbw   m2, m3
 %endmacro
 
-%macro SAD_X3_2x8P_SSE2 4
+%macro SAD_X3_2x8P_SSE2 4 ; r0..r3
     movq     m6, [r0+%1]
     movq     m3, [r1+%2]
     movq     m4, [r2+%2]
@@ -1168,7 +1181,7 @@ SAD_X 4,  4,  4
     paddw    m2, m5
 %endmacro
 
-%macro SAD_X4_START_2x8P_SSE2 0
+%macro SAD_X4_START_2x8P_SSE2 0 ; r0..r5
     movq     m4, [r0]
     movq     m0, [r1]
     movq     m1, [r2]
@@ -1185,7 +1198,7 @@ SAD_X 4,  4,  4
     psadbw   m3, m4
 %endmacro
 
-%macro SAD_X4_2x8P_SSE2 4
+%macro SAD_X4_2x8P_SSE2 4 ; r0..r4
     movq     m6, [r0+%1]
     movq     m4, [r1+%2]
     movq     m5, [r2+%2]
@@ -1206,7 +1219,7 @@ SAD_X 4,  4,  4
     paddw    m3, m5
 %endmacro
 
-%macro SAD_X4_START_1x16P_SSE2 0
+%macro SAD_X4_START_1x16P_SSE2 0 ; r0..r4
     mova     m3, [r0]
 %if cpuflag(avx)
     psadbw   m0, m3, [r1]
@@ -1225,7 +1238,7 @@ SAD_X 4,  4,  4
 %endif
 %endmacro
 
-%macro SAD_X4_1x16P_SSE2 2
+%macro SAD_X4_1x16P_SSE2 2 ; r0..r4
     mova     m6, [r0+%1]
 %if cpuflag(avx)
     psadbw   m4, m6, [r1+%2]
@@ -1251,12 +1264,12 @@ SAD_X 4,  4,  4
     paddw    m3, m5
 %endmacro
 
-%macro SAD_X4_4x16P_SSE2 2
+%macro SAD_X4_4x16P_SSE2 2 ; r0..r6
 %if %1==0
     lea  r6, [r5*3]
-    SAD_X4_START_1x16P_SSE2
+    SAD_X4_START_1x16P_SSE2 ; r0..r4
 %else
-    SAD_X4_1x16P_SSE2 FENC_STRIDE*(0+(%1&1)*4), r5*0
+    SAD_X4_1x16P_SSE2 FENC_STRIDE*(0+(%1&1)*4), r5*0 ; r0..r4
 %endif
     SAD_X4_1x16P_SSE2 FENC_STRIDE*(1+(%1&1)*4), r5*1
     SAD_X4_1x16P_SSE2 FENC_STRIDE*(2+(%1&1)*4), r5*2
@@ -1272,12 +1285,12 @@ SAD_X 4,  4,  4
 %endif
 %endmacro
 
-%macro SAD_X3_4x8P_SSE2 2
+%macro SAD_X3_4x8P_SSE2 2 ; r0..r4, t0
 %if %1==0
     lea  t0, [r4*3]
-    SAD_X3_START_2x8P_SSE2
+    SAD_X3_START_2x8P_SSE2 ; r0..r4
 %else
-    SAD_X3_2x8P_SSE2 FENC_STRIDE*(0+(%1&1)*4), r4*0, FENC_STRIDE*(1+(%1&1)*4), r4*1
+    SAD_X3_2x8P_SSE2 FENC_STRIDE*(0+(%1&1)*4), r4*0, FENC_STRIDE*(1+(%1&1)*4), r4*1 ; r0..r3
 %endif
     SAD_X3_2x8P_SSE2 FENC_STRIDE*(2+(%1&1)*4), r4*2, FENC_STRIDE*(3+(%1&1)*4), t0
 %if %1 != %2-1
@@ -1290,12 +1303,12 @@ SAD_X 4,  4,  4
 %endif
 %endmacro
 
-%macro SAD_X4_4x8P_SSE2 2
+%macro SAD_X4_4x8P_SSE2 2 ; r0..r6
 %if %1==0
     lea    r6, [r5*3]
-    SAD_X4_START_2x8P_SSE2
+    SAD_X4_START_2x8P_SSE2 ; r0..r5
 %else
-    SAD_X4_2x8P_SSE2 FENC_STRIDE*(0+(%1&1)*4), r5*0, FENC_STRIDE*(1+(%1&1)*4), r5*1
+    SAD_X4_2x8P_SSE2 FENC_STRIDE*(0+(%1&1)*4), r5*0, FENC_STRIDE*(1+(%1&1)*4), r5*1 ; r0..r4
 %endif
     SAD_X4_2x8P_SSE2 FENC_STRIDE*(2+(%1&1)*4), r5*2, FENC_STRIDE*(3+(%1&1)*4), r6
 %if %1 != %2-1
@@ -1309,7 +1322,7 @@ SAD_X 4,  4,  4
 %endif
 %endmacro
 
-%macro SAD_X3_END_SSE2 0
+%macro SAD_X3_END_SSE2 0 ; r5, r5mp, RET
     movifnidn r5, r5mp
 %if cpuflag(ssse3)
     packssdw m0, m1
@@ -1330,7 +1343,7 @@ SAD_X 4,  4,  4
     RET
 %endmacro
 
-%macro SAD_X4_END_SSE2 0
+%macro SAD_X4_END_SSE2 0 ; r0, r6mp, RET
     mov      r0, r6mp
 %if cpuflag(ssse3)
     packssdw m0, m1
@@ -1352,7 +1365,7 @@ SAD_X 4,  4,  4
     RET
 %endmacro
 
-%macro SAD_X4_START_2x8P_SSSE3 0
+%macro SAD_X4_START_2x8P_SSSE3 0 ; r0..r5
     movddup  m4, [r0]
     movq     m0, [r1]
     movq     m1, [r3]
@@ -1371,7 +1384,7 @@ SAD_X 4,  4,  4
     paddw    m1, m3
 %endmacro
 
-%macro SAD_X4_2x8P_SSSE3 4
+%macro SAD_X4_2x8P_SSSE3 4 ; r0..r4
     movddup  m6, [r0+%1]
     movq     m2, [r1+%2]
     movq     m3, [r3+%2]
@@ -1392,12 +1405,12 @@ SAD_X 4,  4,  4
     paddw    m1, m5
 %endmacro
 
-%macro SAD_X4_4x8P_SSSE3 2
+%macro SAD_X4_4x8P_SSSE3 2 ; r0..r6
 %if %1==0
     lea    r6, [r5*3]
-    SAD_X4_START_2x8P_SSSE3
+    SAD_X4_START_2x8P_SSSE3 ; r0..r5
 %else
-    SAD_X4_2x8P_SSSE3 FENC_STRIDE*(0+(%1&1)*4), r5*0, FENC_STRIDE*(1+(%1&1)*4), r5*1
+    SAD_X4_2x8P_SSSE3 FENC_STRIDE*(0+(%1&1)*4), r5*0, FENC_STRIDE*(1+(%1&1)*4), r5*1 ; r0..r4
 %endif
     SAD_X4_2x8P_SSSE3 FENC_STRIDE*(2+(%1&1)*4), r5*2, FENC_STRIDE*(3+(%1&1)*4), r6
 %if %1 != %2-1
@@ -1411,14 +1424,14 @@ SAD_X 4,  4,  4
 %endif
 %endmacro
 
-%macro SAD_X4_END_SSSE3 0
+%macro SAD_X4_END_SSSE3 0 ; r0, r6mp, RET
     mov      r0, r6mp
     packssdw m0, m1
     mova   [r0], m0
     RET
 %endmacro
 
-%macro SAD_X3_START_2x16P_AVX2 0
+%macro SAD_X3_START_2x16P_AVX2 0 ; r0..r4
     movu    m3, [r0] ; assumes FENC_STRIDE == 16
     movu   xm0, [r1]
     movu   xm1, [r2]
@@ -1431,7 +1444,7 @@ SAD_X 4,  4,  4
     psadbw  m2, m3
 %endmacro
 
-%macro SAD_X3_2x16P_AVX2 3
+%macro SAD_X3_2x16P_AVX2 3 ; r0..r3
     movu    m3, [r0+%1] ; assumes FENC_STRIDE == 16
     movu   xm4, [r1+%2]
     movu   xm5, [r2+%2]
@@ -1447,12 +1460,12 @@ SAD_X 4,  4,  4
     paddw   m2, m6
 %endmacro
 
-%macro SAD_X3_4x16P_AVX2 2
+%macro SAD_X3_4x16P_AVX2 2 ; r0..r4, t0
 %if %1==0
     lea  t0, [r4*3]
-    SAD_X3_START_2x16P_AVX2
+    SAD_X3_START_2x16P_AVX2 ; r0..r4
 %else
-    SAD_X3_2x16P_AVX2 FENC_STRIDE*(0+(%1&1)*4), r4*0, r4*1
+    SAD_X3_2x16P_AVX2 FENC_STRIDE*(0+(%1&1)*4), r4*0, r4*1 ; r0..r3
 %endif
     SAD_X3_2x16P_AVX2 FENC_STRIDE*(2+(%1&1)*4), r4*2, t0
 %if %1 != %2-1
@@ -1465,7 +1478,7 @@ SAD_X 4,  4,  4
 %endif
 %endmacro
 
-%macro SAD_X4_START_2x16P_AVX2 0
+%macro SAD_X4_START_2x16P_AVX2 0 ; r0..r5
     vbroadcasti128 m4, [r0]
     vbroadcasti128 m5, [r0+FENC_STRIDE]
     movu   xm0, [r1]
@@ -1484,7 +1497,7 @@ SAD_X 4,  4,  4
     paddw   m1, m3
 %endmacro
 
-%macro SAD_X4_2x16P_AVX2 4
+%macro SAD_X4_2x16P_AVX2 4 ; r0..r4
     vbroadcasti128 m6, [r0+%1]
     vbroadcasti128 m7, [r0+%3]
     movu   xm2, [r1+%2]
@@ -1505,12 +1518,12 @@ SAD_X 4,  4,  4
     paddw   m1, m5
 %endmacro
 
-%macro SAD_X4_4x16P_AVX2 2
+%macro SAD_X4_4x16P_AVX2 2 ; r0..r6
 %if %1==0
     lea  r6, [r5*3]
-    SAD_X4_START_2x16P_AVX2
+    SAD_X4_START_2x16P_AVX2 ; r0..r5
 %else
-    SAD_X4_2x16P_AVX2 FENC_STRIDE*(0+(%1&1)*4), r5*0, FENC_STRIDE*(1+(%1&1)*4), r5*1
+    SAD_X4_2x16P_AVX2 FENC_STRIDE*(0+(%1&1)*4), r5*0, FENC_STRIDE*(1+(%1&1)*4), r5*1 ; r0..r4
 %endif
     SAD_X4_2x16P_AVX2 FENC_STRIDE*(2+(%1&1)*4), r5*2, FENC_STRIDE*(3+(%1&1)*4), r6
 %if %1 != %2-1
@@ -1524,7 +1537,7 @@ SAD_X 4,  4,  4
 %endif
 %endmacro
 
-%macro SAD_X3_END_AVX2 0
+%macro SAD_X3_END_AVX2 0 ; r5, r5mp, RET
     movifnidn r5, r5mp
     packssdw  m0, m1        ; 0 0 1 1 0 0 1 1
     packssdw  m2, m2        ; 2 2 _ _ 2 2 _ _
@@ -1535,7 +1548,7 @@ SAD_X 4,  4,  4
     RET
 %endmacro
 
-%macro SAD_X4_END_AVX2 0
+%macro SAD_X4_END_AVX2 0 ; r0, r6mp, RET
     mov       r0, r6mp
     packssdw  m0, m1        ; 0 0 1 1 2 2 3 3
     vextracti128 xm1, m0, 1
@@ -1552,10 +1565,10 @@ SAD_X 4,  4,  4
 cglobal pixel_sad_x%1_%2x%3, 2+%1,3+%1,%4
 %assign x 0
 %rep %3/4
-    SAD_X%1_4x%2P_SSE2 x, %3/4
+    SAD_X%1_4x%2P_SSE2 x, %3/4 ; X3: r0..r4, t0 / X4: r0..r6
 %assign x x+1
 %endrep
-    SAD_X%1_END_SSE2
+    SAD_X%1_END_SSE2 ; X3: r5, r5mp, RET / X4: r0, r6mp, RET
 %endmacro
 
 INIT_XMM sse2
@@ -1580,10 +1593,10 @@ SAD_X_SSE2 4, 16,  8, 7
 cglobal pixel_sad_x%1_%2x%3, 2+%1,3+%1,8
 %assign x 0
 %rep %3/4
-    SAD_X%1_4x%2P_SSSE3 x, %3/4
+    SAD_X%1_4x%2P_SSSE3 x, %3/4 ; X4: r0..r6
 %assign x x+1
 %endrep
-    SAD_X%1_END_SSSE3
+    SAD_X%1_END_SSSE3 ; X4: r0, r6mp, RET
 %endmacro
 
 INIT_XMM ssse3
@@ -1605,10 +1618,10 @@ SAD_X_SSE2 4, 16,  8, 7
 cglobal pixel_sad_x%1_%2x%3, 2+%1,3+%1,%4
 %assign x 0
 %rep %3/4
-    SAD_X%1_4x%2P_AVX2 x, %3/4
+    SAD_X%1_4x%2P_AVX2 x, %3/4 ; X3: r0..r4, t0 / X4: r0..r6
 %assign x x+1
 %endrep
-    SAD_X%1_END_AVX2
+    SAD_X%1_END_AVX2 ; X3: r5, r5mp, RET / X4: r0, r6mp, RET
 %endmacro
 
 INIT_YMM avx2
@@ -1861,7 +1874,7 @@ SAD_X_W16_AVX512 4, 16 ; x4_16x16
 ; cache or page split with palignr: 57 cycles (ammortized: +2 cycles)
 
 ; computed jump assumes this loop is exactly 80 bytes
-%macro SAD16_CACHELINE_LOOP_SSE2 1 ; alignment
+%macro SAD16_CACHELINE_LOOP_SSE2 1 ; alignment ; r0..r4
 ALIGN 16
 sad_w16_align%1_sse2:
     movdqa  xmm1, [r2+16]
@@ -1886,7 +1899,7 @@ sad_w16_align%1_sse2:
 %endmacro
 
 ; computed jump assumes this loop is exactly 64 bytes
-%macro SAD16_CACHELINE_LOOP_SSSE3 1 ; alignment
+%macro SAD16_CACHELINE_LOOP_SSSE3 1 ; alignment ; r0..r4
 ALIGN 16
 sad_w16_align%1_ssse3:
     movdqa  xmm1, [r2+16]
@@ -1924,7 +1937,9 @@ cglobal pixel_sad_16x%2_cache64_%1
     lea     r5, [sad_w16_addr]
     add     r5, r4
 %else
-    lea     r5, [sad_w16_addr + r4]
+    PIC_BEGIN r5, 0
+    lea     r5, [pic(sad_w16_addr) + r4]
+    PIC_END
 %endif
     and     r2, ~15
     mov     r4d, %2/2
@@ -1936,15 +1951,17 @@ cglobal pixel_sad_16x%2_cache64_%1
     RET
 %endmacro
 
-%macro SAD_CACHELINE_START_MMX2 4 ; width, height, iterations, cacheline
+%macro SAD_CACHELINE_START_MMX2 4 ; width, height, iterations, cacheline ; eax, r2, r4, r2m, PIC, PROLOGUE 4,5, jle pixel_sad_%1x%2_mmx2
     mov    eax, r2m
     and    eax, 0x17|%1|(%4>>1)
     cmp    eax, 0x10|%1|(%4>>1)
     jle pixel_sad_%1x%2_mmx2
     and    eax, 7
     shl    eax, 3
-    movd   mm6, [sw_64]
     movd   mm7, eax
+    PIC_BEGIN eax, 0
+    movd   mm6, [pic(sw_64)]
+    PIC_END
     psubw  mm6, mm7
     PROLOGUE 4,5
     and    r2, ~7
@@ -1954,7 +1971,7 @@ cglobal pixel_sad_16x%2_cache64_%1
 
 %macro SAD16_CACHELINE_FUNC_MMX2 2 ; height, cacheline
 cglobal pixel_sad_16x%1_cache%2_mmx2
-    SAD_CACHELINE_START_MMX2 16, %1, %1, %2
+    SAD_CACHELINE_START_MMX2 16, %1, %1, %2 ; eax, r2, r4, r2m, PIC, PROLOGUE 4,5, jle pixel_sad_%1x%2_mmx2
 .loop:
     movq   mm1, [r2]
     movq   mm2, [r2+8]
@@ -1980,7 +1997,7 @@ cglobal pixel_sad_16x%1_cache%2_mmx2
 
 %macro SAD8_CACHELINE_FUNC_MMX2 2 ; height, cacheline
 cglobal pixel_sad_8x%1_cache%2_mmx2
-    SAD_CACHELINE_START_MMX2 8, %1, %1/2, %2
+    SAD_CACHELINE_START_MMX2 8, %1, %1/2, %2 ; eax, r2, r4, r2m, PIC, PROLOGUE 4,5, jle pixel_sad_%1x%2_mmx2
 .loop:
     movq   mm1, [r2+8]
     movq   mm2, [r2+r3+8]
@@ -2007,7 +2024,7 @@ cglobal pixel_sad_8x%1_cache%2_mmx2
 ; sad_x3/x4_cache64: check each mv.
 ; if they're all within a cacheline, use normal sad_x3/x4.
 ; otherwise, send them individually to sad_cache64.
-%macro CHECK_SPLIT 3 ; pix, width, cacheline
+%macro CHECK_SPLIT 3 ; pix, width, cacheline ; eax, jg .split
     mov  eax, %1
     and  eax, 0x17|%2|(%3>>1)
     cmp  eax, 0x10|%2|(%3>>1)
@@ -2016,7 +2033,7 @@ cglobal pixel_sad_8x%1_cache%2_mmx2
 
 %macro SADX3_CACHELINE_FUNC 6 ; width, height, cacheline, normal_ver, split_ver, name
 cglobal pixel_sad_x3_%1x%2_cache%3_%6
-    CHECK_SPLIT r1m, %1, %3
+    CHECK_SPLIT r1m, %1, %3 ; eax, jg .split
     CHECK_SPLIT r2m, %1, %3
     CHECK_SPLIT r3m, %1, %3
     jmp pixel_sad_x3_%1x%2_%4
@@ -2056,7 +2073,7 @@ cglobal pixel_sad_x3_%1x%2_cache%3_%6
     add  rsp, 40+2*8
 %endif
     RET
-%else
+%else ; ARCH
     push edi
     mov  edi, [esp+28]
     push dword [esp+24]
@@ -2076,12 +2093,12 @@ cglobal pixel_sad_x3_%1x%2_cache%3_%6
     add  esp, 16
     pop  edi
     ret
-%endif
+%endif ; ARCH
 %endmacro
 
 %macro SADX4_CACHELINE_FUNC 6 ; width, height, cacheline, normal_ver, split_ver, name
 cglobal pixel_sad_x4_%1x%2_cache%3_%6
-    CHECK_SPLIT r1m, %1, %3
+    CHECK_SPLIT r1m, %1, %3 ; eax, jg .split
     CHECK_SPLIT r2m, %1, %3
     CHECK_SPLIT r3m, %1, %3
     CHECK_SPLIT r4m, %1, %3
@@ -2130,7 +2147,7 @@ cglobal pixel_sad_x4_%1x%2_cache%3_%6
     add  rsp, 32+3*8
 %endif
     RET
-%else
+%else ; ARCH
     push edi
     mov  edi, [esp+32]
     push dword [esp+28]
@@ -2154,7 +2171,7 @@ cglobal pixel_sad_x4_%1x%2_cache%3_%6
     add  esp, 16
     pop  edi
     ret
-%endif
+%endif ; ARCH
 %endmacro
 
 %macro SADX34_CACHELINE_FUNC 1+
