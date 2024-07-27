@@ -399,17 +399,21 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                    rpic in functions having regs_used < 3.
 ;                    Expands to nothing on PIC != 2.
 ; * picb             PIC_BEGIN/PIC_END balance counter.
-; * rpicsf           rpic save flag:
-;                    0  don't save rpic in PIC_BEGIN / restore in PIC_END
-;                    1  save rpic in PIC_BEGIN and restore in PIC_END
-; * rpicsave         rpic save location ([mem] or reg) if non-empty,
-;                    safeguard against PIC push/pop otherwize.
 ; * rpic             gen-purpose register used as base reg for rpicl-relative
 ;                    addressing; if initialized correctly [by PIC_BEGIN],
 ;                    rpic contains address of rpicl which is usually defined
 ;                    as the .lpicN label placed by current topmost PIC_BEGIN
 ;                    macro.
+; * rpicsave         rpic save location ([mem] or reg) if non-empty,
+;                    safeguard against PIC push/pop otherwize.
+; * rpicsf           "rpic saved" flag:
+;                    0  rpic hasn't been saved in PIC_BEGIN and doesn't need
+;                       restoring in PIC_END;
+;                    1  rpic has been saved in PIC_BEGIN and must be restored
+;                       in corresponding PIC_END.
 ; * rpicl            label used to initialize rpic.
+; * rpiclcache       rpicl cache location ([mem]) if defined.
+; * rpiclcf          "rpicl cached" flag.
 ; * lpic             returns local label in .lpicN format, N is 1,2,..
 ; * lpicno           current/latest .lpic number.
 ; * PIC64_LEA        initializes rpic64/rpic64l and sets pic64 flag.
@@ -419,10 +423,12 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; * rpic64l          rpicl for x86_64 mode.
 ; * PIC_CONTEXT_PUSH saves PIC context on macro stack:
 ;                    * picb
-;                    * rpicsf
-;                    * rpicsave
 ;                    * rpic
+;                    * rpicsave
+;                    * rpicsf
 ;                    * rpicl
+;                    * rpiclcache
+;                    * rpiclcf
 ;                    * stack_offset (PUSH/POP rpic can modify stack_offset,
 ;                      therefore it's included in PIC conext)
 ;                    Note that lpicno is not part of PIC context, and pic64,
@@ -432,6 +438,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 %define pic(a) %cond(PIC==2, (rpic+(a)-rpicl),\
                      %cond(pic64, (rpic64+(a)-rpic64l), (a)))
 %assign picb 0
+%assign rpiclcf 0
 %define lpic .lpic %+ lpicno
 %assign lpicno 0
 %assign pic64 0
@@ -443,7 +450,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;         ...
 ;         jnz .ret2
 ;         ..
-;         RET ; fatal: unbalanced PIC_BEGIN/PIC_END (1) at end of foo
+;         RET ; error: unbalanced PIC_BEGIN/PIC_END (1) at end of foo
 ;     .ret2:
 ;         ...
 ;         PIC_END
@@ -485,42 +492,58 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 %macro PIC_CONTEXT_PUSH 0
     %push pic_context
     %assign %$picb picb
-    %ifdef rpicsf
-        %assign %$rpicsf rpicsf
+    %ifdef rpic
+        %xdefine %$rpic rpic
     %endif
     %ifdef rpicsave
         %xdefine %$rpicsave rpicsave
     %endif
-    %ifdef rpic
-        %xdefine %$rpic rpic
+    %ifdef rpicsf
+        %assign %$rpicsf rpicsf
     %endif
     %ifdef rpicl
         %xdefine %$rpicl rpicl
+    %endif
+    %ifdef rpiclcache
+        %xdefine %$rpiclcache rpiclcache
+    %endif
+    %ifdef rpiclcf
+        %xdefine %$rpiclcf rpiclcf
     %endif
     %assign %$pic64 pic64
     %assign %$stack_offset stack_offset
 %endmacro
 %macro PIC_CONTEXT_POP 0
     %assign picb %$picb
-    %ifdef %$rpicsf
-        %assign rpicsf %$rpicsf
+    %ifdef %$rpic
+        %xdefine rpic %$rpic
     %else
-        %undef rpicsf
+        %undef rpic
     %endif
     %ifdef %$rpicsave
         %xdefine rpicsave %$rpicsave
     %else
         %undef rpicsave
     %endif
-    %ifdef %$rpic
-        %xdefine rpic %$rpic
+    %ifdef %$rpicsf
+        %assign rpicsf %$rpicsf
     %else
-        %undef rpic
+        %undef rpicsf
     %endif
     %ifdef %$rpicl
         %xdefine rpicl %$rpicl
     %else
         %undef rpicl
+    %endif
+    %ifdef %$rpiclcache
+        %xdefine rpiclcache %$rpiclcache
+    %else
+        %undef rpiclcache
+    %endif
+    %ifdef %$rpiclcf
+        %xdefine rpiclcf %$rpiclcf
+    %else
+        %undef rpiclcf
     %endif
     %assign pic64 %$pic64
     %assign stack_offset %$stack_offset
@@ -531,9 +554,13 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; Initialize PIC block to use reg as rpic, or select rpic automatically (r2
 ; if regs_used < 3 or r5 otherwize).
 ; If fsave flag is given, use it to override rpicsf which is decided
-; automatically (rpicsf=0 when regs_used < 3).
+; automatically (typically rpicsf=0 when regs_used < 3).
 ; If label parameter is given, initialize rpic with its address instead of
 ; address of .lpicN label.
+; If rpicsf is set and rpicsave has been defined beforehand, use rpicsave
+; to save current contents of rpic register instead of pushing it to stack.
+; If rpiclcf has been set beforehand, load previous rpicl label address from it
+; and don't perform call/pop initialization.
 %macro PIC_BEGIN 0-3
     %if PIC == 2
         %if picb == 0
@@ -577,20 +604,31 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                 %ifndef rpicsave
                     PUSH rpic
                 %elifempty rpicsave
-                    %warning "unsafe to push rpic"
+                    %error "unsafe to push rpic"
                 %else
                     mov rpicsave, rpic
                 %endif
             %endif
             %assign lpicno lpicno+1
-            call lpic
-lpic:       pop rpic
-            %if %0 >= 3
-                %xdefine rpicl (%3)
-                ; add rpic, rpicl - lpic
-                sub rpic, lpic - rpicl
+            %if rpiclcf
+                mov rpic, rpiclcache
             %else
                 %xdefine rpicl lpic
+                call rpicl
+rpicl:          pop rpic
+                %ifdef rpiclcache
+                    mov rpiclcache, rpic
+                    %assign rpiclcf 1
+                %endif
+            %endif
+            %if %0 >= 3
+                ; add rpic, (%3) - rpicl
+                sub rpic, rpicl - (%3)
+                %xdefine rpicl (%3)
+                %ifdef rpiclcache
+                    mov rpiclcache, rpic
+                    %assign rpiclcf 1
+                %endif
             %endif
         %endif
         %assign picb picb+1
@@ -600,23 +638,57 @@ lpic:       pop rpic
     %if PIC == 2
         %assign picb picb-1
         %if picb < 0
-            %fatal %strcat("PIC_END not matched by PIC_BEGIN in ",\
+            %error %strcat(%?, " not matched by PIC_BEGIN in ",\
                 %str(current_function))
-        %endif
-        %if picb == 0
+            %assign picb 0 ; silence further PIC error messages
+        %elif picb == 0
             %if rpicsf
                 %ifndef rpicsave
                     POP rpic
                 %elifempty rpicsave
-                    ; %warning "unsafe to pop rpic"
+                    ; %error "unsafe to pop rpic"
                 %else
                     mov rpic, rpicsave
                 %endif
             %endif
             %undef rpic
-            %undef rpicl
+            %if !rpiclcf
+                %undef rpicl
+            %endif
             %undef rpicsf
         %endif
+    %endif
+%endmacro
+
+; produce closest multiple of 16 greater than or equal to x
+%define ceil16(x) (((x) + 15) & ~15)
+; produce smallest pad capable of holding x to align stack to 16
+%define pad16(s, x) (ceil16((s)+(x))-(s))
+%define pad16(x) pad16(gprsize+stack_offset, x)
+
+; PIC_CACHE_RPICL can be used in function prologue to define
+; rpicsave and initialize rpicl cache: this will signal all subsequent
+; PIC_BEGIN/END block to use common rpicsave and rpiclcache without
+; affecting stack pointer or doing call/pop init.
+%macro PIC_CACHE_RPICL 3-4 ; rpic, rpicsave, rpiclcache[, rpicl]
+    %if PIC==2
+        %if picb > 0
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
+        %endif
+        %xdefine %%rpic %tok(%1)
+        %xdefine rpicsave %2
+        %xdefine rpiclcache %3
+        %xdefine rpicl lpic
+        mov rpicsave, %%rpic ; save rpic
+        call rpicl
+rpicl:  pop %%rpic
+        %if 0 >= 4
+            sub %%rpic, rpicl - (%4)
+            %xdefine rpicl %4
+        %endif
+        mov rpiclcache, %%rpic
+        %assign rpiclcf 1
+        mov %%rpic, rpicsave ; restore rpic
     %endif
 %endmacro
 
@@ -650,50 +722,93 @@ DECLARE_REG_ID ax, cx, dx, bx, sp, bp, si, di, R8w, R9w, R10w, R11w, R12w, R13w,
 DECLARE_REG_ID al, cl, dl, bl, spl, bpl, sil, dil, R8w, R9w, R10w, R11w, R12w, R13w, R14w, R15w
 DECLARE_REG_ID ah, ch, dh, bh
 
-%macro CHECK_REG_COLLISION_I 4 ; reg, tok, i, str(arg[i])
-    %ifidn %1, %2
-        %error %strcat(%1, " collision with %", %3, ": ", %4)
-    %elif %isid(%1) && %isid(%2) \
-            && %isdef(reg_id_of_%1) && %isdef(reg_id_of_%2) \
-            && (reg_id_of_%1==reg_id_of_%2)
-        %error %strcat(%1, " collision with %", %3, ": ", %4)
+%macro CHECK_REG_COLLISION_I 3-4 ; reg, arg[i], i, arg[i].word
+    %xdefine %%r %1
+    %xdefine %%rt %tok(%%r)
+    %xdefine %%rs %str(%%rt)
+    %xdefine %%rz %%rs
+    %ifnidn %%r, %%rt
+        %xdefine %%rz %strcat(%%r, "=", %%rt)
+    %endif
+    %xdefine %%rid -1
+    %ifid %%rt
+        %ifdef reg_id_of_%[%%rt]
+            %xdefine %%rid reg_id_of_%[%%rt]
+        %endif
+    %endif
+
+    %xdefine %%a %2
+    %xdefine %%at %tok(%%a)
+    %xdefine %%as %str(%%at)
+    %xdefine %%az %%as
+    %ifnidn %%a, %%at
+        %xdefine %%az %strcat(%%a, "=", %%at)
+    %endif
+
+    %xdefine %%w %%2
+    %if %0 >= 4
+        %xdefine %%w %4
+    %endif
+    %xdefine %%wt %tok(%%w)
+    %xdefine %%ws %str(%%wt)
+    %xdefine %%wid -2
+    %ifid %%wt
+        %ifdef reg_id_of_%[%%wt]
+            %xdefine %%wid reg_id_of_%[%%wt]
+        %endif
+    %endif
+
+    %if %isidn(%%r, %%w) || %isidn(%%rt, %%wt) || %%rid==%%wid
+        %error %strcat(%%rz, " collision with %", %3, ": ", %%az)
     %elif picb > 0
-        %if rpicsf && %isndef(rpicsave) && %isid(%2) \
-                && %isdef(reg_id_of_%2) \
-                && (reg_id_of_rsp==reg_id_of_%2)
-            %error %strcat("rpic push/pop collision with %", %3, ": ", %4)
+        %if rpicsf && %isndef(rpicsave) && %%wid==reg_id_of_rsp
+            ; Modify stack_offset and 'expand' arg[i] again. Then check
+            ; if expansion of arg[i] depends on stack_offset or not.
+            %xdefine %%so stack_offset
+            %assign stack_offset stack_offset-gprsize
+            %xdefine %%bt %tok(%%a)
+            ; %%at is original expansion of arg[i], %%bt - new one.
+            %ifidn %%bt, %%at
+                ; If arg[i] expansion doesn't depend on stack_offset, then
+                ; PUSH/POP rsp screws it.
+                %error %strcat("rpic push/pop collision with %", %3, ": ", %%az)
+            %endif
+            ; restore stack_offset
+            %xdefine stack_offset %%so
         %endif
     %endif
 %endmacro
 
 %macro CHECK_REG_COLLISION 1-*  ; reg[, arg1[, arg2]...]
     %xdefine %%r %1
-    %ifid %%r
+    %xdefine %%rt %tok(%%r)
+    %ifid %%rt
         %rotate 1
         %assign %%i 1
         %rep %0-1
-            %xdefine %%a %1         ; arg[i]
-            %defstr  %%s %%a        ; str(arg[i])
-            CHECK_REG_COLLISION_I %%r, %%a, %%i, %%s
-            ; split str(arg[i]) into words and check each one
-            %xdefine %%w ""         ; word
+            %xdefine %%a %1          ; arg[i])
+            %xdefine %%at %tok(%%a)  ; tok(arg[i])
+            %xdefine %%as %str(%%at) ; str(tok(arg[i]))
+            CHECK_REG_COLLISION_I %%r, %%a, %%i
+            ; split arg[i] into words and check each one
+            %xdefine %%w ""          ; word
             %assign %%j 1
-            %rep %strlen(%%s)
-                %xdefine %%c %substr(%%s, %%j, 1)       ; char
+            %rep %strlen(%%as)
+                %xdefine %%c %substr(%%as, %%j, 1)       ; char
                 %if ("a"<=%%c && %%c<="z") || ("A"<=%%c && %%c<="Z") \
                         || ("0"<=%%c && %%c<="9") \
                         || "_"==%%c || "$"==%%c
                     %xdefine %%w %strcat(%%w, %%c) ; append char to word
                 %else
                     %ifnidn %%w, ""
-                        CHECK_REG_COLLISION_I %%r, %tok(%%w), %%i, %%s
+                        CHECK_REG_COLLISION_I %%r, %%a, %%i, %%w
                     %endif
                     %xdefine %%w ""
                 %endif
                 %assign %%j %%j+1
             %endrep
             %ifnidn %%w, ""
-                CHECK_REG_COLLISION_I %%r, %tok(%%w), %%i, %%s
+                CHECK_REG_COLLISION_I %%r, %%a, %%i, %%w
             %endif
             %rotate 1
             %assign %%i %%i+1
@@ -1051,8 +1166,9 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
 ; (SSSE3 is a sufficient condition to know that your cpu doesn't have this problem.)
 %macro REP_RET 0
     %if picb != 0
-        %fatal %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
+        %error %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
             ") at end of ", %str(current_function))
+        %assign picb 0 ; silence further PIC error messages
     %endif
     %if has_epilogue || cpuflag(ssse3)
         RET
@@ -1065,8 +1181,9 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
 %define last_branch_adr $$
 %macro AUTO_REP_RET 0
     %if picb != 0
-        %fatal %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
+        %error %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
             ") at end of ", %str(current_function))
+        %assign picb 0 ; silence further PIC error messages
     %endif
     %if notcpuflag(ssse3)
         times ((last_branch_adr-$)>>31)+1 rep ; times 1 iff $ == last_branch_adr.
@@ -1122,6 +1239,8 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     %undef num_args
     %undef regs_used
     %undef rpicsave
+    %undef rpiclcache
+    %assign rpiclcf 0
     %assign pic64 0
     %undef rpic64
     %undef rpic64l
@@ -1151,8 +1270,9 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     align function_align
     %2:
     %if picb != 0
-        %fatal %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
+        %error %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
             ") at start of ", %str(current_function))
+        %assign picb 0 ; silence further PIC error messages
     %endif
     RESET_MM_PERMUTATION        ; needed for x86-64, also makes disassembly somewhat nicer
     %xdefine rstk rsp           ; copy of the original stack pointer, used when greater alignment than the known stack alignment is required
