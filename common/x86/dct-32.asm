@@ -444,10 +444,22 @@ global add8x8_idct8_mmx.skip_prologue
 cglobal sub8x8_dct, 3,3
     add r2, 4*FDEC_STRIDE
 cglobal_label .skip_prologue
+%if cpuflag(xop)
+    ; x264_8_sub8x8_dct_xop
+    PIC_ALLOC_RPICSAVE ; PIC_BEGIN x5, alloc sv/cc
+%elif cpuflag(ssse3)
+    ; x264_8_sub8x8_dct_ssse3
+    ; x264_8_sub8x8_dct_avx
+    ; x264_8_sub8x8_dct_xop
+    %define rpicsave ; PIC_BEGIN x1 block, just do push/pop once
+%endif
 %if cpuflag(ssse3)
     PIC_BEGIN
     mova m7, [pic(hsub_mul)]
     PIC_END
+    %if !cpuflag(xop)
+        %undef rpicsave
+    %endif
 %endif
     LOAD_DIFF8x4 0, 1, 2, 3, 6, 7, r1, r2-4*FDEC_STRIDE
     SPILL r0, 1,2
@@ -457,20 +469,20 @@ cglobal_label .skip_prologue
     SPILL r0, 7
     SWAP 2, 7
     UNSPILL r0, 2
-    DCT4_1D 0, 1, 2, 3, 7
+    DCT4_1D 0, 1, 2, 3, 7 ; PIC*[xop]
     TRANSPOSE2x4x4W 0, 1, 2, 3, 7
     UNSPILL r0, 7
     SPILL r0, 2
-    DCT4_1D 4, 5, 6, 7, 2
+    DCT4_1D 4, 5, 6, 7, 2 ; PIC*[xop]
     TRANSPOSE2x4x4W 4, 5, 6, 7, 2
     UNSPILL r0, 2
     SPILL r0, 6
-    DCT4_1D 0, 1, 2, 3, 6
+    DCT4_1D 0, 1, 2, 3, 6 ; PIC*[xop]
     UNSPILL r0, 6
     STORE_DCT 0, 1, 2, 3, r0, 0
-    DCT4_1D 4, 5, 6, 7, 3
+    DCT4_1D 4, 5, 6, 7, 3 ; PIC*[xop]
     STORE_DCT 4, 5, 6, 7, r0, 64
-    ret
+    RET
 
 ;-----------------------------------------------------------------------------
 ; void sub8x8_dct8( int16_t dct[8][8], uint8_t *pix1, uint8_t *pix2 )
@@ -479,9 +491,14 @@ cglobal sub8x8_dct8, 3,3
     add r2, 4*FDEC_STRIDE
 cglobal_label .skip_prologue
 %if cpuflag(ssse3)
+    ; x264_8_sub8x8_dct8_ssse3
+    ; x264_8_sub8x8_dct8_avx
+    ; x264_8_sub8x8_dct8_xop
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     mova m7, [pic(hsub_mul)]
     PIC_END
+    %undef rpicsave
     LOAD_DIFF8x4 0, 1, 2, 3, 4, 7, r1, r2-4*FDEC_STRIDE
     SPILL r0, 0,1
     SWAP 1, 7
