@@ -446,12 +446,12 @@ cglobal sub8x8_dct, 3,3
 cglobal_label .skip_prologue
 %if cpuflag(xop)
     ; x264_8_sub8x8_dct_xop
-    PIC_ALLOC_RPICSAVE ; PIC_BEGIN x5, alloc sv/cc
+    PIC_ALLOC ; PIC x5, alloc sv/cc
 %elif cpuflag(ssse3)
     ; x264_8_sub8x8_dct_ssse3
     ; x264_8_sub8x8_dct_avx
     ; x264_8_sub8x8_dct_xop
-    %define rpicsave ; PIC_BEGIN x1 block, just do push/pop once
+    %define rpicsave ; PIC x1, just do push/pop once
 %endif
 %if cpuflag(ssse3)
     PIC_BEGIN
@@ -482,6 +482,7 @@ cglobal_label .skip_prologue
     STORE_DCT 0, 1, 2, 3, r0, 0
     DCT4_1D 4, 5, 6, 7, 3 ; PIC*[xop]
     STORE_DCT 4, 5, 6, 7, r0, 64
+    PIC_FREE
     RET
 
 ;-----------------------------------------------------------------------------
