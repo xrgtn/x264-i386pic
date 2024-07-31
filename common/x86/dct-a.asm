@@ -1155,6 +1155,7 @@ cglobal add16x16_idct_dc, 2,3
 
 INIT_XMM sse2
 cglobal add16x16_idct_dc, 2,2,8
+    PIC_BEGIN r2, 0
     call .loop
     add       r0, FDEC_STRIDE*4
     TAIL_CALL .loop, 0
@@ -1166,10 +1167,8 @@ cglobal add16x16_idct_dc, 2,2,8
     punpcklwd m0, m0
     punpcklwd m2, m2
     pxor      m3, m3
-    PIC_BEGIN
     paddw     m0, [pic(pw_32)]
     paddw     m2, [pic(pw_32)]
-    PIC_END
     psraw     m0, 6
     psraw     m2, 6
     psubw     m1, m3, m0
@@ -1183,9 +1182,11 @@ cglobal add16x16_idct_dc, 2,2,8
     ADD_DC    m0, m1, r0+FDEC_STRIDE*-4
     ADD_DC    m2, m3, r0
     ret
+    PIC_END
 
 %macro ADD16x16 0
 cglobal add16x16_idct_dc, 2,2,8
+    PIC_BEGIN r2, 0
     call .loop
     add      r0, FDEC_STRIDE*4
     TAIL_CALL .loop, 0
@@ -1194,12 +1195,10 @@ cglobal add16x16_idct_dc, 2,2,8
     mova     m0, [r1]
     add      r1, 16
     pxor     m1, m1
-    PIC_BEGIN
     pmulhrsw m0, [pic(pw_512)]
     psubw    m1, m0
     mova     m5, [pic(pb_unpackbd1)]
     mova     m6, [pic(pb_unpackbd2)]
-    PIC_END
     packuswb m0, m0
     packuswb m1, m1
     pshufb   m2, m0, m6
@@ -1209,6 +1208,7 @@ cglobal add16x16_idct_dc, 2,2,8
     ADD_DC   m0, m1, r0+FDEC_STRIDE*-4
     ADD_DC   m2, m3, r0
     ret
+    PIC_END
 %endmacro ; ADD16x16
 
 INIT_XMM ssse3
