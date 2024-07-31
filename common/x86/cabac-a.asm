@@ -119,8 +119,11 @@ endstruc
 %macro LOAD_GLOBAL 6 ; dst, offs, base, index, tmp, rpic
 %if ARCH_X86_64 == 0
     PIC_BEGIN %6
+    CHECK_REG_COLLISION "rpic",,%2,%3,%4
     %ifidn %4, 0
         movzx %1, byte [pic(%2)+%3]
+    %elifidn %3, 0
+        movzx %1, byte [pic(%2)+%4]
     %else
         add %6, %3
         movzx %1, byte [pic(%2)+%4]
@@ -160,8 +163,9 @@ cglobal cabac_encode_decision_%1, 1,7
 %if ARCH_X86_64
     lea    r7, [$$]
 %endif
-    LOAD_GLOBAL t5d, cabac_range_lps-4, t5, t4*2, t4, t0
-    LOAD_GLOBAL t4d, cabac_transition, t2, t6*2, t4, t0
+    PIC_ALLOC ; safe to push/pop rpic
+    LOAD_GLOBAL t5d, cabac_range_lps-4, t5, t4*2, t4, t0 ; PIC
+    LOAD_GLOBAL t4d, cabac_transition, t2, t6*2, t4, t0 ; PIC
     and   t6d, 1
     sub   t3d, t5d
     cmp   t6d, t2d
@@ -179,10 +183,11 @@ cglobal cabac_encode_decision_%1, 1,7
     shlx  t6d, t6d, t3d
 %else
     shr   t3d, 3
-    LOAD_GLOBAL t3d, cabac_renorm_shift, t3, 0, 0, t0
+    LOAD_GLOBAL t3d, cabac_renorm_shift, t3, 0, 0, t0 ; PIC
     shl   t4d, t3b
     shl   t6d, t3b
 %endif
+    PIC_FREE
 %if WIN64
     POP    r7
 %endif
