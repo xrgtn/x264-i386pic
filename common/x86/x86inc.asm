@@ -437,6 +437,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                    * rpicl
 ;                    * rpiclcache
 ;                    * rpiclcf
+;                    * picallocd
 ;                    * rstk (rpicsave/rpiclcache locations can be defined
 ;                      relative to rstk+stack_offset/size/size_padded)
 ;                    * stack_offset (PUSH/POP rpic can modify stack_offset,
@@ -453,6 +454,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                      %cond(pic64, (rpic64+(a)-rpic64l), (a)))
 %assign picb 0
 %assign rpiclcf 0
+%assign picallocd 0
 %define lpic .lpic %+ lpicno
 %assign lpicno 0
 %assign pic64 0
@@ -545,6 +547,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %ifdef rpiclcf
         %xdefine %$rpiclcf rpiclcf
     %endif
+    %assign %$picallocd picallocd
     ; restore rstk/stack_params:
     %ifdef %$rstk
         %xdefine rstk %$rstk
@@ -599,6 +602,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %else
         %undef rpiclcf
     %endif
+    %assign picallocd %$picallocd
     ; restore rstk/stack_params last:
     %ifdef %$rstk
         %xdefine rstk %$rstk
@@ -759,7 +763,7 @@ rpicl:          pop rpic
 ;                                    ;  0x..20: .......__|__align32
 ;                                    ;  0x..18: ==stk==  |
 ;                                    ;  0x..10: ==sz===--+
-%macro PIC_ALLOC_RPICSAVE 0
+%macro PIC_ALLOC 0
     %if PIC==2
         ASSERT (stack_size_padded >= stack_size)
         ; Estimate required stack %%wpad (used on WIN64)
@@ -782,8 +786,7 @@ rpicl:          pop rpic
         %endif
         %if picb > 0
             %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
-        %elif (stack_size_padded > 0) && (stack_size > 0) && \
-                (required_stack_alignment > STACK_ALIGNMENT)
+        %elif (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
             ; aligned to reqrd_align and rsp stored in rstkm
             ; TODO: try placing sv/cache (in this order):
             ; - in !!!!!!!-gap, if there's enough space
@@ -795,57 +798,59 @@ rpicl:          pop rpic
         %else
             ; aligned to stk_align or not aligned at all
             ASSERT %isidn(rstk, rsp)
-            %assign %%g %cond((STACK_ALIGNMENT) > (2*(gprsize)), \
-                (STACK_ALIGNMENT), (2*(gprsize)))
-            %if (stack_size_padded-stack_size-%%wpad) >= (2*gprsize)
+            %assign %%g 2*(gprsize)
+            %assign %%G %cond((STACK_ALIGNMENT) > %%g, (STACK_ALIGNMENT), %%g)
+            %if (stack_size_padded-stack_size-%%wpad) >= 2*(gprsize)
                 ; !!!!!!!-gap is already large enough to hold 2 regs
                 %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
+                %assign picallocd 0
             %elif stack_size_padded == 0
                 ; no stack_size, no pad, unaligned -- create pad, don't align:
-                %assign %%g (2*gprsize) ; no alignment necessary
                 %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
                 SUB rsp, %%g
-                %assign stack_size_padded stack_size_padded+%%g
+                %assign stack_size_padded %%g
+                %assign picallocd 1
             %elif %%nxmmpush == 0
                 ; non-empty pad, but no xmm regs to move -- inflate
                 ; !!!!!!!-gap at the top of stack pad:
                 %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
-                SUB rsp, %%g
-                %assign stack_size_padded stack_size_padded+%%g
+                SUB rsp, %%G
+                %assign stack_size_padded stack_size_padded+%%G
+                %assign picallocd 2
             %elif stack_size > 0
                 ; WIN64, xmm regs pushed, non-empty stack_size area,
                 ; rqrd_align <= stk_align -- inflate stack_size, so that xmm
                 ; regs are left untouched:
                 %assign %%sv stack_offset-(stack_size)+2*(gprsize)
-                SUB rsp, %%g
-                %assign stack_size_padded stack_size_padded+%%g
-                %assign stack_size stack_size+%%g
+                SUB rsp, %%G
+                %assign stack_size_padded stack_size_padded+%%G
+                %assign stack_size stack_size+%%G
+                %assign picallocd 3
             %elif required_stack_alignment > STACK_ALIGNMENT
                 ; WIN64, nxmmpush > 0, initial stack_size is 0 and inflating it
                 ; forces switch to rstk/rstkm model, with unknown at compile
-                ; time shift of xmm save area (so xmm regs need to be
+                ; time shift of xmm save area (so xmm regs would need to be
                 ; pushed/saved again).
-                ; It's easier to inflate !!!!!!!-gap and move xmm regs.
-                %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
-                SUB rsp, %%g
-                %assign stack_size_padded stack_size_padded+%%g
-                ; move:
-                %assign %%i 8
-                %rep %%nxmmpush
-                    movaps [rsp + (%%i-8)*16 + stack_size + 32], xmm %+ %%i
-                    %assign %%i %%i+1
-                %endrep
+                ; Here we extend wpad and place 2 regs at its bottom,
+                ; temporarily invalidating [rsp+stack_size+32+i*16] references
+                ; to xmm save area, until PIC_FREE
+                %assign %%sv stack_offset-(stack_size)-32
+                SUB rsp, %%G
+                %assign stack_size_padded stack_size_padded+%%G
+                %assign picallocd 4
             %else ; rqrd_align <= stk_align
                 ; WIN64, nxmmpush > 0, initial stack_size==0 but inflating it
                 ; won't switch to rstk/rstkm model.
                 %assign %%sv stack_offset-(stack_size)+2*(gprsize)
-                SUB rsp, %%g
-                %assign stack_size_padded stack_size_padded+%%g
-                %assign stack_size stack_size+%%g
+                SUB rsp, %%G
+                %assign stack_size_padded stack_size_padded+%%G
+                %assign stack_size %%G
+                %assign picallocd 5
             %endif
-            ; sv is distance from rpicsave to retaddr (retaddr pushed to stack
-            ; by caller); cc is distance from rpiclcache to retaddr. rpiclcache
-            ; is directly above rpicsave, so it's 1 regsize closer to retaddr:
+            ; sv is distance from rpicsave to retaddr (return address pushed to
+            ; stack by caller); cc is distance from rpiclcache to retaddr.
+            ; rpiclcache is directly above rpicsave, so it's 1 regsize closer
+            ; to retaddr:
             %assign %%cc %%sv-gprsize
             ; xdefine rpicsave/rpiclcache as macros with 'unexpanded' rstk and
             ; stack_offset parameters (trick is for rstk and stack_offset to be
@@ -860,6 +865,44 @@ rpicl:          pop rpic
             %xdefine rpiclcache [rstk+stack_offset-%%cc]
             %xdefine stack_offset %%stko
             %xdefine rstk %%rstk
+        %endif
+    %endif
+%endmacro
+
+%macro PIC_FREE 0
+    %if PIC==2
+        ASSERT (stack_size_padded >= stack_size)
+        %if picb > 0
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
+        %elif (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
+            %fatal %strcat(%?, " can't free w/rstkm")
+        %else
+            %assign %%g 2*(gprsize)
+            %assign %%G %cond((STACK_ALIGNMENT) > %%g, (STACK_ALIGNMENT), %%g)
+            %if picallocd == 0
+                ; nothing to do
+            %elif picallocd == 1
+                ADD rsp, %%g
+                %assign stack_size_padded 0
+            %elif picallocd == 2
+                ADD rsp, %%G
+                %assign stack_size_padded stack_size_padded-%%G
+            %elif picallocd == 3
+                ADD rsp, %%G
+                %assign stack_size_padded stack_size_padded-%%G
+                %assign stack_size        stack_size       -%%G
+            %elif picallocd == 4
+                ADD rsp, %%G
+                %assign stack_size_padded stack_size_padded-%%G
+            %elif picallocd == 5
+                ADD rsp, %%G
+                %assign stack_size_padded stack_size_padded-%%G
+                %assign stack_size        0
+            %endif
+            %undef  rpicsave
+            %undef  rpiclcache
+            %assign rpiclcf 0
+            %assign picallocd 0
         %endif
     %endif
 %endmacro
