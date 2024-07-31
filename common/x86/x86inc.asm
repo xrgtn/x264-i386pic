@@ -762,6 +762,8 @@ rpicl:          pop rpic
 %macro PIC_ALLOC_RPICSAVE 0
     %if PIC==2
         ASSERT (stack_size_padded >= stack_size)
+        ; Estimate required stack %%wpad (used on WIN64)
+        %assign %%wpad 0
         %assign %%nxmmresv 0  ; reserved space for xmm regs
         %assign %%nxmmpush 0  ; actually "pushed" xmm regs
         %if WIN64 && (mmsize != 8)
@@ -775,7 +777,6 @@ rpicl:          pop rpic
                 %assign %%nxmmpush xmm_regs_used - (8 + high_mm_regs)
             %endif
         %endif
-        %assign %%wpad 0
         %if WIN64 && ((stack_size > 0) || (%%nxmmpush > 0))
             %assign %%wpad 16*nxmmresv + 32
         %endif
