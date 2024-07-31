@@ -445,21 +445,21 @@ cglobal sub8x8_dct, 3,3
     add r2, 4*FDEC_STRIDE
 cglobal_label .skip_prologue
 %if cpuflag(xop)
-    ; x264_8_sub8x8_dct_xop
-    PIC_ALLOC ; PIC x5, alloc sv/cc
+    ; x264_8_sub8x8_dct_xop: PIC x5 times, allocate rpicsave/rpiclcache
+    PIC_ALLOC
 %elif cpuflag(ssse3)
-    ; x264_8_sub8x8_dct_ssse3
-    ; x264_8_sub8x8_dct_avx
-    ; x264_8_sub8x8_dct_xop
-    %define rpicsave ; PIC x1, just do push/pop once
+    ; x264_8_sub8x8_dct_ssse3,
+    ; x264_8_sub8x8_dct_avx,
+    ; x264_8_sub8x8_dct_xop: PIC x1, just do default push/pop
+    %define rpicsave
 %endif
 %if cpuflag(ssse3)
     PIC_BEGIN
     mova m7, [pic(hsub_mul)]
     PIC_END
-    %if !cpuflag(xop)
-        %undef rpicsave
-    %endif
+%if !cpuflag(xop)
+    %undef rpicsave ; declare that PIC won't trigger anymore in this function
+%endif
 %endif
     LOAD_DIFF8x4 0, 1, 2, 3, 6, 7, r1, r2-4*FDEC_STRIDE
     SPILL r0, 1,2
@@ -482,7 +482,10 @@ cglobal_label .skip_prologue
     STORE_DCT 0, 1, 2, 3, r0, 0
     DCT4_1D 4, 5, 6, 7, 3 ; PIC*[xop]
     STORE_DCT 4, 5, 6, 7, r0, 64
+%if cpuflag(xop)
+    ; x264_8_sub8x8_dct_xop
     PIC_FREE
+%endif
     RET
 
 ;-----------------------------------------------------------------------------
