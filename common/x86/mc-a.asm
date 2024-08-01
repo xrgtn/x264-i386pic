@@ -62,17 +62,17 @@ cextern deinterleave_shufd
 ; assumes log2_denom = 5, offset = 0, weight1 + weight2 = 64
 %if WIN64
     DECLARE_REG_TMP 0,1,2,3,4,5,4,5
-    %macro AVG_START 0-1 0
+    %macro AVG_START 0-1 0 ; PROLOGUE 6,7,%
         PROLOGUE 6,7,%1
     %endmacro
 %elif UNIX64
     DECLARE_REG_TMP 0,1,2,3,4,5,7,8
-    %macro AVG_START 0-1 0
+    %macro AVG_START 0-1 0 ; PROLOGUE 6,9,%
         PROLOGUE 6,9,%1
     %endmacro
 %else
     DECLARE_REG_TMP 1,2,3,4,5,6,1,2
-    %macro AVG_START 0-1 0
+    %macro AVG_START 0-1 0 ; PROLOGUE 0,7,%; t0*..5*, r0m*..5m*
         PROLOGUE 0,7,%1
         mov t0, r0m
         mov t1, r1m
@@ -83,7 +83,7 @@ cextern deinterleave_shufd
     %endmacro
 %endif
 
-%macro AVG_END 0-1 2 ; rows
+%macro AVG_END 0-1 2 ; rows ; eax, t0..5, jg .height_loop, RET
     lea  t2, [t2+t3*2*SIZEOF_PIXEL]
     lea  t4, [t4+t5*2*SIZEOF_PIXEL]
     lea  t0, [t0+t1*2*SIZEOF_PIXEL]
@@ -94,7 +94,7 @@ cextern deinterleave_shufd
 
 %if HIGH_BIT_DEPTH
 
-%macro BIWEIGHT_MMX 2
+%macro BIWEIGHT_MMX 2 ; m0..1,3..4
     movh      m0, %1
     movh      m1, %2
     punpcklwd m0, m1
@@ -103,7 +103,7 @@ cextern deinterleave_shufd
     psrad     m0, 6
 %endmacro
 
-%macro BIWEIGHT_START_MMX 0 ; PIC
+%macro BIWEIGHT_START_MMX 0 ; t6,7; r6m, m3..5, PIC
     movzx  t6d, word r6m
     mov    t7d, 64
     sub    t7d, t6d
@@ -111,14 +111,14 @@ cextern deinterleave_shufd
     add    t6d, t7d
     movd    m3, t6d
     SPLATD  m3, m3
-    PIC_BEGIN r4
+    PIC_BEGIN
     mova    m4, [pic(pd_32)]
     PIC_END
     pxor    m5, m5
 %endmacro
 
 %else ;!HIGH_BIT_DEPTH
-%macro BIWEIGHT_MMX 2
+%macro BIWEIGHT_MMX 2 ; m0..5
     movh      m0, %1
     movh      m1, %2
     punpcklbw m0, m5
@@ -130,10 +130,10 @@ cextern deinterleave_shufd
     psraw     m0, 6
 %endmacro
 
-%macro BIWEIGHT_START_MMX 0 ; PIC
+%macro BIWEIGHT_START_MMX 0 ; r6m, m2..5, PIC x2
     movd    m2, r6m
     SPLATW  m2, m2   ; weight_dst
-    PIC_BEGIN r4
+    PIC_BEGIN
     mova    m3, [pic(pw_64)]
     psubw   m3, m2   ; weight_src
     mova    m4, [pic(pw_32)] ; rounding
@@ -142,7 +142,7 @@ cextern deinterleave_shufd
 %endmacro
 %endif ;HIGH_BIT_DEPTH
 
-%macro BIWEIGHT_SSSE3 2
+%macro BIWEIGHT_SSSE3 2 ; m0..1,3..4
     movh      m0, %1
     movh      m1, %2
     punpcklbw m0, m1
@@ -150,9 +150,9 @@ cextern deinterleave_shufd
     pmulhrsw  m0, m4
 %endmacro
 
-%macro BIWEIGHT_START_SSSE3 0 ; PIC
+%macro BIWEIGHT_START_SSSE3 0 ; t6,7; r6m, m3,4; PIC
     movzx         t6d, byte r6m ; FIXME x86_64
-    PIC_BEGIN r4
+    PIC_BEGIN
 %if mmsize > 16
     vbroadcasti128 m4, [pic(pw_512)]
 %else
@@ -175,8 +175,8 @@ cextern deinterleave_shufd
 %endmacro
 
 %if HIGH_BIT_DEPTH
-%macro BIWEIGHT_ROW 4
-    BIWEIGHT   [%2], [%3]
+%macro BIWEIGHT_ROW 4 ; m0..1,3..7
+    BIWEIGHT   [%2], [%3] ; m0..1,3..4
 %if %4==mmsize/4
     packssdw     m0, m0
     CLIPW        m0, m5, m7
@@ -191,8 +191,8 @@ cextern deinterleave_shufd
 %endmacro
 
 %else ;!HIGH_BIT_DEPTH
-%macro BIWEIGHT_ROW 4
-    BIWEIGHT [%2], [%3]
+%macro BIWEIGHT_ROW 4 ; m0..1,2*..7
+    BIWEIGHT [%2], [%3] ; m0..1,2*..4,5*
 %if %4==mmsize/2
     packuswb   m0, m0
     movh     [%1], m0
@@ -210,14 +210,14 @@ cextern deinterleave_shufd
 ; int pixel_avg_weight_w16( pixel *dst, intptr_t, pixel *src1, intptr_t, pixel *src2, intptr_t, int i_weight )
 ;-----------------------------------------------------------------------------
 %macro AVG_WEIGHT 1-2 0
-cglobal pixel_avg_weight_w%1
-    BIWEIGHT_START ; PIC
-    AVG_START %2
+cglobal pixel_avg_weight_w%1 ; eax contains H (%2 from pixel_avg_%1x%2)
+    PIC_BEGIN t0, 0 ; t0 not yet initialized, don't save
+    BIWEIGHT_START ; t6*,7*; r6m, m2*..5*, PIC x2*
 %if HIGH_BIT_DEPTH
-    PIC_BEGIN
     mova    m7, [pic(pw_pixel_max)]
-    PIC_END
 %endif
+    PIC_END
+    AVG_START %2 ; PROLOGUE 6,7,%2/6,9,%2/0,7,%2; t0*..5*, r0m..5m
 .height_loop:
 %if mmsize==16 && %1==mmsize/(2*SIZEOF_PIXEL)
     BIWEIGHT [t2], [t4]
@@ -226,12 +226,12 @@ cglobal pixel_avg_weight_w%1
 %if HIGH_BIT_DEPTH
     packssdw m6, m0
     CLIPW    m6, m5, m7
-%else ;!HIGH_BIT_DEPTH
+%else ; !HIGH_BIT_DEPTH
     packuswb m6, m0
-%endif ;HIGH_BIT_DEPTH
+%endif ; BIT_DEPTH
     movlps   [t0], m6
     movhps   [t0+SIZEOF_PIXEL*t1], m6
-%else
+%else ; mmsize!=16 || %1!=mmsize/(2*SIZEOF_PIXEL)
 %assign x 0
 %rep (%1*SIZEOF_PIXEL+mmsize-1)/mmsize
     BIWEIGHT_ROW   t0+x,                   t2+x,                   t4+x,                 %1
@@ -239,7 +239,7 @@ cglobal pixel_avg_weight_w%1
 %assign x x+mmsize
 %endrep
 %endif
-    AVG_END
+    AVG_END ; eax, t0..5, jg .height_loop, RET
 %endmacro
 
 %define BIWEIGHT BIWEIGHT_MMX
@@ -267,8 +267,10 @@ AVG_WEIGHT 16, 7
 
 INIT_YMM avx2
 cglobal pixel_avg_weight_w16
-    BIWEIGHT_START ; PIC
-    AVG_START 5
+    PIC_BEGIN t0, 0 ; t0 not yet initialized, don't save
+    BIWEIGHT_START ; t6*,7*; r6m, m2*..5*, PIC x2*
+    PIC_END
+    AVG_START 5 ; PROLOGUE 6,7,5/6,9,5/0,7,5; t0*..5*, r0m..5m
 .height_loop:
     movu     xm0, [t2]
     movu     xm1, [t4]
@@ -282,14 +284,16 @@ cglobal pixel_avg_weight_w16
     packuswb  m0, m1
     mova    [t0], xm0
     vextracti128 [t0+t1], m0, 1
-    AVG_END
+    AVG_END ; eax, t0..5, jg .height_loop, RET
 
 INIT_YMM avx512
 cglobal pixel_avg_weight_w8
-    BIWEIGHT_START ; PIC
+    PIC_BEGIN t0, 0 ; t0 not yet initialized, don't save
+    BIWEIGHT_START ; t6*,7*; r6m, m2*..5*, PIC x2*
+    PIC_END
     kxnorb         k1, k1, k1
     kaddb          k1, k1, k1
-    AVG_START 5
+    AVG_START 5 ; PROLOGUE 6,7,5/6,9,5/0,7,5; t0*..5*, r0m..5m
 .height_loop:
     movq          xm0, [t2]
     movq          xm2, [t4]
@@ -314,12 +318,14 @@ cglobal pixel_avg_weight_w8
     lea            t0, [t0+t1*2]
     movq         [t0], xmm1
     movhps    [t0+t1], xmm1
-    AVG_END 4
+    AVG_END 4 ; eax, t0..t5, jg .height_loop, RET
 
 INIT_ZMM avx512
 cglobal pixel_avg_weight_w16
-    BIWEIGHT_START ; PIC
-    AVG_START 5
+    PIC_BEGIN t0, 0 ; t0 not yet initialized, don't save
+    BIWEIGHT_START ; t6*,7*; r6m, m2*..5*, PIC x2*
+    PIC_END
+    AVG_START 5 ; PROLOGUE 6,7,5/6,9,5/0,7,5; t0*..t5*, r0m..r5m
 .height_loop:
     movu        xm0, [t2]
     movu        xm1, [t4]
@@ -342,7 +348,7 @@ cglobal pixel_avg_weight_w16
     lea          t0, [t0+t1*2]
     vextracti32x4 [t0], m0, 2
     vextracti32x4 [t0+t1], m0, 3
-    AVG_END 4
+    AVG_END 4 ; eax, t0..t5, jg .height_loop, RET
 %endif ;HIGH_BIT_DEPTH
 
 ;=============================================================================
@@ -351,18 +357,18 @@ cglobal pixel_avg_weight_w16
 
 %if HIGH_BIT_DEPTH
 ; width
-%macro WEIGHT_START 1 ; PIC
+%macro WEIGHT_START 1 ; r4, m0,2..4, PIC x2
     mova        m0, [r4+ 0]         ; 1<<denom
     mova        m3, [r4+16]
     movd        m2, [r4+32]         ; denom
-    PIC_BEGIN r4
+    PIC_BEGIN
     mova        m4, [pic(pw_pixel_max)]
     paddw       m2, [pic(sq_1)]     ; denom+1
     PIC_END
 %endmacro
 
 ; src1, src2
-%macro WEIGHT 2
+%macro WEIGHT 2 ; m0,2..3,5..6
     movh        m5, [%1]
     movh        m6, [%2]
     punpcklwd   m5, m0
@@ -375,34 +381,33 @@ cglobal pixel_avg_weight_w16
 %endmacro
 
 ; src, dst, width
-%macro WEIGHT_TWO_ROW 4 ; PIC
+%macro WEIGHT_TWO_ROW 4 ; r1,3; m0,2..7*, PIC x2* x%rep
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%1,%2,"r1","r3"
     %assign x 0
 %rep (%3+mmsize/2-1)/(mmsize/2)
 %if %3-x/2 <= 4 && mmsize == 16
-    WEIGHT      %1+x, %1+r3+x
-    PIC_BEGIN r4
+    WEIGHT      %1+x, %1+r3+x ; m0,2..3,5..6
     CLIPW         m5, [pic(pb_0)], m4
-    PIC_END
     movh      [%2+x], m5
     movhps [%2+r1+x], m5
 %else
     WEIGHT      %1+x, %1+x+mmsize/2
     SWAP           5,  7
     WEIGHT   %1+r3+x, %1+r3+x+mmsize/2
-    PIC_BEGIN r4
     CLIPW         m5, [pic(pb_0)], m4
     CLIPW         m7, [pic(pb_0)], m4
-    PIC_END
     mova      [%2+x], m7
     mova   [%2+r1+x], m5
 %endif
     %assign x x+mmsize
 %endrep
+    PIC_END
 %endmacro
 
 %else ; !HIGH_BIT_DEPTH
 
-%macro WEIGHT_START 1
+%macro WEIGHT_START 1 ; r4, m2..5
 %if cpuflag(avx2)
     vbroadcasti128 m3, [r4]
     vbroadcasti128 m4, [r4+16]
@@ -417,7 +422,7 @@ cglobal pixel_avg_weight_w16
 %endmacro
 
 ; src1, src2, dst1, dst2, fast
-%macro WEIGHT_ROWx2 5
+%macro WEIGHT_ROWx2 5 ; m0..7
     movh      m0, [%1         ]
     movh      m1, [%1+mmsize/2]
     movh      m6, [%2         ]
@@ -462,7 +467,7 @@ cglobal pixel_avg_weight_w16
 %endmacro
 
 ; src1, src2, dst1, dst2, width, fast
-%macro WEIGHT_COL 6
+%macro WEIGHT_COL 6 ; m0..5
 %if cpuflag(avx2)
 %if %5==16
     movu     xm0, [%1]
@@ -534,18 +539,18 @@ cglobal pixel_avg_weight_w16
 %endif
 %endmacro
 ; src, dst, width
-%macro WEIGHT_TWO_ROW 4
+%macro WEIGHT_TWO_ROW 4 ; r1,3; m0..7*
 %assign x 0
 %rep %3
 %if (%3-x) >= mmsize
-    WEIGHT_ROWx2 %1+x, %1+r3+x, %2+x, %2+r1+x, %4
+    WEIGHT_ROWx2 %1+x, %1+r3+x, %2+x, %2+r1+x, %4 ; m0..7
     %assign x (x+mmsize)
 %else
     %assign w %3-x
 %if w == 20
     %assign w 16
 %endif
-    WEIGHT_COL %1+x, %1+r3+x, %2+x, %2+r1+x, w, %4
+    WEIGHT_COL %1+x, %1+r3+x, %2+x, %2+r1+x, w, %4 ; m0..5
     %assign x (x+w)
 %endif
 %if x >= %3
@@ -563,33 +568,36 @@ cglobal pixel_avg_weight_w16
 %macro WEIGHTER 1
 cglobal mc_weight_w%1, 6,6,8
     FIX_STRIDES r1, r3
-    WEIGHT_START %1 ; PIC
+%if HIGH_BIT_DEPTH
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6
+%endif
+    WEIGHT_START %1 ; r4, m0*,2..5*, PIC*[HIGH_BIT_DEPTH]
 %if cpuflag(ssse3) && HIGH_BIT_DEPTH == 0
     ; we can merge the shift step into the scale factor
     ; if (m3<<7) doesn't overflow an int16_t
     cmp byte [r4+1], 0
     jz .fast
 %endif
-    PIC_BEGIN r6
 .loop:
-    WEIGHT_TWO_ROW r2, r0, %1, 0 ; PIC
+    WEIGHT_TWO_ROW r2, r0, %1, 0 ; r1,3; m0..7*, PIC*[HIGH_BIT_DEPTH]
     lea  r0, [r0+r1*2]
     lea  r2, [r2+r3*2]
     sub r5d, 2
     jg .loop
+%if HIGH_BIT_DEPTH
     PIC_END
+%endif
     RET
 %if cpuflag(ssse3) && HIGH_BIT_DEPTH == 0
 .fast:
     psllw m3, 7
-    PIC_BEGIN r6
 .fastloop:
-    WEIGHT_TWO_ROW r2, r0, %1, 1 ; PIC
+    WEIGHT_TWO_ROW r2, r0, %1, 1
     lea  r0, [r0+r1*2]
     lea  r2, [r2+r3*2]
     sub r5d, 2
     jg .fastloop
-    PIC_END
     RET
 %endif
 %endmacro
@@ -619,7 +627,7 @@ WEIGHTER 16
 WEIGHTER 20
 %endif
 
-%macro OFFSET_OP 7
+%macro OFFSET_OP 7 ; m0..3
     mov%6        m0, [%1]
     mov%6        m1, [%2]
 %if HIGH_BIT_DEPTH
@@ -637,11 +645,11 @@ WEIGHTER 20
     mov%7      [%4], m1
 %endmacro
 
-%macro OFFSET_TWO_ROW 4
+%macro OFFSET_TWO_ROW 4 ; r1,r3, m0..3
 %assign x 0
 %rep %3
 %if (%3*SIZEOF_PIXEL-x) >= mmsize
-    OFFSET_OP (%1+x), (%1+x+r3), (%2+x), (%2+x+r1), %4, u, a
+    OFFSET_OP (%1+x), (%1+x+r3), (%2+x), (%2+x+r1), %4, u, a ; m0..3
     %assign x (x+mmsize)
 %else
 %if HIGH_BIT_DEPTH
@@ -1190,21 +1198,25 @@ cglobal pixel_avg2_w20, 6,7
 ; pixel_avg, the cacheline check functions calls the SSE2 version if there
 ; is no cacheline split, and the MMX workaround if there is.
 
-%macro INIT_SHIFT 2 ; PIC
+%macro INIT_SHIFT 2 ; eax, PIC
     and    eax, 7
     shl    eax, 3
-    PIC_BEGIN r4
+    PIC_BEGIN
+    CHECK_REG_COLLISION, "rpic", %{1:-1}, eax
     movd   %1, [pic(sw_64)] ; %1 is *mm (%1 is dest of psubw op)
     PIC_END
     movd   %2, eax
     psubw  %1, %2
 %endmacro
 
-%macro AVG_CACHELINE_START 0 ; PIC
+%macro AVG_CACHELINE_START 0 ; eax, r2,4; r4m, mm4..7, PIC x2, PROLOGUE 6,6; .height_loop:
     %assign stack_offset 0
-    INIT_SHIFT mm6, mm7 ; PIC
+    PIC_BEGIN r1, 0 ; r1!=eax, r1 is not used until PROLOGUE 6,6 below
+    CHECK_REG_COLLISION "rpic", eax, "r4m"
+    INIT_SHIFT mm6, mm7 ; eax, PIC
     mov    eax, r4m
-    INIT_SHIFT mm4, mm5 ; PIC
+    INIT_SHIFT mm4, mm5 ; eax, PIC
+    PIC_END
     PROLOGUE 6,6
     and    r2, ~7
     and    r4, ~7
@@ -1212,7 +1224,7 @@ cglobal pixel_avg2_w20, 6,7
 .height_loop:
 %endmacro
 
-%macro AVG_CACHELINE_LOOP 2
+%macro AVG_CACHELINE_LOOP 2 ; r0,2,4; mm0..7
     movq   mm1, [r2+%1]
     movq   mm0, [r2+8+%1]
     movq   mm3, [r2+r4+%1]
@@ -1229,8 +1241,8 @@ cglobal pixel_avg2_w20, 6,7
 
 %macro AVG_CACHELINE_FUNC 2
 pixel_avg2_w%1_cache_mmx2:
-    AVG_CACHELINE_START
-    AVG_CACHELINE_LOOP 0, movq
+    AVG_CACHELINE_START ; eax, r2,4; r4m, mm4..7, PIC x2, PROLOGUE 6,6; .height_loop:
+    AVG_CACHELINE_LOOP 0, movq ; r0,2,4; mm0..7
 %if %1>8
     AVG_CACHELINE_LOOP 8, movq
 %if %1>16
@@ -1297,7 +1309,7 @@ AVG_CACHELINE_CHECK 16, 64, sse2
 AVG_CACHELINE_CHECK 20, 64, sse2
 
 ; computed jump assumes this loop is exactly 48 bytes
-%macro AVG16_CACHELINE_LOOP_SSSE3 2 ; alignment
+%macro AVG16_CACHELINE_LOOP_SSSE3 2 ; alignment ; r0..5, xmm1,2*; jg avg_w16_align%1_%2_ssse3, ret
 ALIGN 16
 avg_w16_align%1_%2_ssse3:
 %if %1==0 && %2==0
@@ -1357,6 +1369,7 @@ cglobal pixel_avg2_w16_cache64_ssse3
     lea    r7, [avg_w16_addr]
     add    r6, r7
 %else
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r5
     lea    r6, [pic(avg_w16_addr) + r6]
     PIC_END
@@ -1591,7 +1604,7 @@ cglobal prefetch_ref, 3,3
     DECLARE_REG_TMP 0,1,2
 %endif
 
-%macro MC_CHROMA_START 1
+%macro MC_CHROMA_START 1 ; PROLOGUE 0,9,%1/0,6,%1; r3..5, t0..2, r3m..6m
 %if ARCH_X86_64
     PROLOGUE 0,9,%1
 %else
@@ -1646,7 +1659,7 @@ cglobal prefetch_ref, 3,3
 ;-----------------------------------------------------------------------------
 %macro MC_CHROMA 0
 cglobal mc_chroma
-    MC_CHROMA_START 0
+    MC_CHROMA_START 0 ; PROLOGUE 0,9,0/0,6,0; r3..5, t0..2, r3m..6m
     FIX_STRIDES r4
     and       r5d, 7
 %if ARCH_X86_64
@@ -1667,7 +1680,7 @@ cglobal mc_chroma
 .skip_prologue:
 %else
     jl mc_chroma_mmx2 %+ .skip_prologue
-    WIN64_SPILL_XMM 9
+    WIN64_SPILL_XMM 9 ; now it's PROLOGUE 0,9,9/0,6,9
 %endif
     movd       m5, t2d
     movifnidn  r0, r0mp
@@ -1691,16 +1704,17 @@ cglobal mc_chroma
     pshufd     m5, m5, q1111
     jg .width8
 %endif
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6
 %if HIGH_BIT_DEPTH
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4","r5"
     add        r2, r2
     UNPACK_UNALIGNED m0, m1, m2, r3
 %else
     movu       m0, [r3]
     UNPACK_UNALIGNED m0, m1, [r3+2]
     mova       m1, m0
-    PIC_BEGIN
     pand       m0, [pic(pw_00ff)]
-    PIC_END
     psrlw      m1, 8
 %endif ; HIGH_BIT_DEPTH
     pmaddwd    m0, m7
@@ -1717,16 +1731,12 @@ ALIGN 4
     UNPACK_UNALIGNED m0, m1, [r3+r4+2]
     pmullw     m3, m6
     mova       m1, m0
-    PIC_BEGIN
     pand       m0, [pic(pw_00ff)]
-    PIC_END
     psrlw      m1, 8
 %endif ; HIGH_BIT_DEPTH
     pmaddwd    m0, m7
     pmaddwd    m1, m7
-    PIC_BEGIN
     mova       m2, [pic(pw_32)]
-    PIC_END
     packssdw   m0, m1
     paddw      m2, m3
     mova       m3, m0
@@ -1756,6 +1766,7 @@ ALIGN 4
     add        r1, r2
     dec       r5d
     jg .loop2
+    PIC_END
     RET
 
 %if mmsize==8
@@ -1768,14 +1779,15 @@ ALIGN 4
     %define multy0 r4m
 %else
     %define multy0 [rsp-8] ; XXX wtf?
+    %undef rpicsave
 %endif
     mova    multy0, m5
-%else ; ARCH
+%else ; !ARCH_X86_64
     mov       r3m, r3
     %define multy0 r4m
     mova    multy0, m5
-%endif
-%else ; mmsize
+%endif ; ARCH
+%else ; mmsize!=8
 .width8:
 %if ARCH_X86_64
     %define multy0 m8
@@ -1786,6 +1798,7 @@ ALIGN 4
 %endif
 %endif ; mmsize
     FIX_STRIDES r2
+    PIC_BEGIN r6 ; r6 is not used in .loopx
 .loopx:
 %if HIGH_BIT_DEPTH
     UNPACK_UNALIGNED m0, m2, m4, r3
@@ -1797,11 +1810,9 @@ ALIGN 4
     UNPACK_UNALIGNED m1, m3, [r3+2+mmsize/2]
     psrlw      m2, m0, 8
     psrlw      m3, m1, 8
-    PIC_BEGIN
     pand       m0, [pic(pw_00ff)]
     pand       m1, [pic(pw_00ff)]
-    PIC_END
-%endif
+%endif ; BIT_DEPTH
     pmaddwd    m0, m7
     pmaddwd    m2, m7
     pmaddwd    m1, m7
@@ -1829,26 +1840,23 @@ ALIGN 4
     UNPACK_UNALIGNED m1, m3, [r3+2+mmsize/2]
     psrlw      m2, m0, 8
     psrlw      m3, m1, 8
-    PIC_BEGIN
     pand       m0, [pic(pw_00ff)]
     pand       m1, [pic(pw_00ff)]
-    PIC_END
     pmaddwd    m0, m7
     pmaddwd    m2, m7
     pmaddwd    m1, m7
     pmaddwd    m3, m7
     packssdw   m0, m2
     packssdw   m1, m3
-%endif ; HIGH_BIT_DEPTH
+%endif ; BIT_DEPTH
     pmullw     m4, m6
     pmullw     m5, m6
-    PIC_BEGIN
     mova       m2, [pic(pw_32)]
-    PIC_END
     paddw      m3, m2, m5
     paddw      m2, m4
     mova       m4, m0
     mova       m5, m1
+    CHECK_REG_COLLISION "rpic","multy0"
     pmullw     m0, multy0
     pmullw     m1, multy0
     paddw      m0, m2
@@ -1879,33 +1887,40 @@ ALIGN 4
     movq     [r0], m0
     movhps   [r1], m0
 %endif
-%endif ; HIGH_BIT_DEPTH
+%endif ; BIT_DEPTH
     add        r3, r4
     add        r0, r2
     add        r1, r2
     dec       r5d
     jg .loop4
 %if mmsize!=8
+    PIC_END
     RET
-%else
+%else ; mmsize==8
+    CHECK_REG_COLLISION "rpic","r7m"
     sub dword r7m, 4
     jg .width8
+    PIC_CONTEXT_PUSH
+    PIC_END
     RET
+    PIC_CONTEXT_POP
 .width8:
 %if ARCH_X86_64
     lea        r3, [t2+8*SIZEOF_PIXEL]
     lea        r0, [t0+4*SIZEOF_PIXEL]
     lea        r1, [t1+4*SIZEOF_PIXEL]
 %else
+    CHECK_REG_COLLISION "rpic","r3","r3m","r0","r0m","r1","r1m","r5d","r8m"
     mov        r3, r3m
     mov        r0, r0m
     mov        r1, r1m
     add        r3, 8*SIZEOF_PIXEL
     add        r0, 4*SIZEOF_PIXEL
     add        r1, 4*SIZEOF_PIXEL
-%endif
+%endif ;
     mov       r5d, r8m
     jmp .loopx
+    PIC_END
 %endif ; mmsize
 
 %if ARCH_X86_64 ; too many regs for x86_32
@@ -2040,7 +2055,7 @@ ALIGN 4
 
 %macro MC_CHROMA_SSSE3 0
 cglobal mc_chroma
-    MC_CHROMA_START 10-cpuflag(avx2)
+    MC_CHROMA_START 10-cpuflag(avx2) ; PROLOGUE 0,9,10*/0,6,10*; r3..5, t0..2, r3m..6m
     and       r5d, 7
     and       t2d, 7
     mov       t0d, r5d
@@ -2053,6 +2068,9 @@ cglobal mc_chroma
     imul      r5d, t0d ; (x*255+8)*(8-y)
     movd      xm6, t2d
     movd      xm7, r5d
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6 ; r6 is not used in mc_chroma, even on X86_64
+    CHECK_REG_COLLISION "rpic","t0","t1","r0mp","r8m"
 %if cpuflag(cache64)
     mov       t0d, r3d
     and       t0d, 7
@@ -2060,19 +2078,13 @@ cglobal mc_chroma
     lea        t1, [ch_shuf_adj]
     movddup   xm5, [t1 + t0*4]
 %else
-    PIC_BEGIN
     movddup   xm5, [pic(ch_shuf_adj) + t0*4] ; t0==r0
-    PIC_END
-%endif
-    PIC_BEGIN
+%endif ; ARCH
     paddb     xm5, [pic(ch_shuf)]
-    PIC_END
     and        r3, ~7
 %else ; !cpuflag(cache64)
-    PIC_BEGIN
     mova       m5, [pic(ch_shuf)]
-    PIC_END
-%endif
+%endif ; cpuflag(cache64)
     movifnidn  r0, r0mp
     movifnidn  r1, r1mp
     movifnidn r2d, r2m
@@ -2104,9 +2116,7 @@ cglobal mc_chroma
     pmaddubsw  m0, m7
     pmaddubsw  m1, m6
     paddw      m0, m1
-    PIC_BEGIN
     pmulhrsw   m0, shiftround
-    PIC_END
     packuswb   m0, m0
     vextracti128 xm1, m0, 1
     movd     [r0], xm0
@@ -2120,7 +2130,10 @@ cglobal mc_chroma
     lea        r1, [r1+r2*2]
     sub       r5d, 2
     jg .loop4
+    PIC_CONTEXT_PUSH
+    PIC_END
     RET
+    PIC_CONTEXT_POP
 .width8:
     movu      xm0, [r3]
     vinserti128 m0, m0, [r3+8], 1
@@ -2140,19 +2153,17 @@ cglobal mc_chroma
 
     paddw      m1, m2
     paddw      m3, m4
-    PIC_BEGIN
     pmulhrsw   m1, shiftround
     pmulhrsw   m3, shiftround
     packuswb   m1, m3
     mova       m2, [pic(deinterleave_shufd)]
-    PIC_END
     vpermd     m1, m2, m1
     vextracti128 xm2, m1, 1
     movq      [r0], xm1
     movhps    [r1], xm1
     movq   [r0+r2], xm2
     movhps [r1+r2], xm2
-%else
+%else ; !cpuflag(avx2)
     movu       m0, [r3]
     pshufb     m0, m5
 .loop4:
@@ -2167,10 +2178,8 @@ cglobal mc_chroma
     pmaddubsw  m3, m6
     paddw      m1, m0
     paddw      m3, m2
-    PIC_BEGIN
     pmulhrsw   m1, shiftround
     pmulhrsw   m3, shiftround
-    PIC_END
     mova       m0, m4
     packuswb   m1, m3
     movd     [r0], m1
@@ -2191,7 +2200,10 @@ cglobal mc_chroma
     lea        r1, [r1+r2*2]
     sub       r5d, 2
     jg .loop4
+    PIC_CONTEXT_PUSH
+    PIC_END
     RET
+    PIC_CONTEXT_POP
 .width8:
     movu       m0, [r3]
     pshufb     m0, m5
@@ -2204,6 +2216,7 @@ cglobal mc_chroma
     mova      r0m, m6
     %define  mult1 r0m
 %endif
+    CHECK_REG_COLLISION "rpic","mult1"
 .loop8:
     movu       m2, [r3+r4]
     pshufb     m2, m5
@@ -2217,10 +2230,8 @@ cglobal mc_chroma
     pmaddubsw  m3, mult1
     paddw      m0, m2
     paddw      m1, m3
-    PIC_BEGIN
     pmulhrsw   m0, shiftround ; x + 32 >> 6
     pmulhrsw   m1, shiftround
-    PIC_END
     packuswb   m0, m1
     pshufd     m0, m0, q3120
     movq     [r0], m0
@@ -2238,20 +2249,19 @@ cglobal mc_chroma
     pmaddubsw  m3, mult1
     paddw      m2, m4
     paddw      m3, m6
-    PIC_BEGIN
     pmulhrsw   m2, shiftround
     pmulhrsw   m3, shiftround
-    PIC_END
     packuswb   m2, m3
     pshufd     m2, m2, q3120
     movq   [r0+r2], m2
     movhps [r1+r2], m2
-%endif
+%endif ; cpuflag(avx2)
     lea        r3, [r3+r4*2]
     lea        r0, [r0+r2*2]
     lea        r1, [r1+r2*2]
     sub       r5d, 2
     jg .loop8
+    PIC_END
     RET
 %endmacro
 
