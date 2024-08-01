@@ -330,7 +330,7 @@ cglobal sub4x4_dct, 3,3
     LOAD_DIFF  m3, m4, none, [r1+6*FENC_STRIDE], [r2+6*FDEC_STRIDE]
     LOAD_DIFF  m1, m4, none, [r1+2*FENC_STRIDE], [r2+2*FDEC_STRIDE]
     LOAD_DIFF  m2, m4, none, [r1+4*FENC_STRIDE], [r2+4*FDEC_STRIDE]
-    DCT4_1D 0,1,2,3,4
+    DCT4_1D 0,1,2,3,4 ; PIC*[xop]
     TRANSPOSE4x4W 0,1,2,3,4
 
     SUMSUB_BADC w, 3, 0, 2, 1
@@ -344,25 +344,27 @@ cglobal sub4x4_dct, 3,3
 
     DCT_UNPACK m0, m2, m4
     DCT_UNPACK m1, m3, m5
-    SUMSUB2_AB  d, 0, 1, 4
+    SUMSUB2_AB  d, 0, 1, 4 ; PIC*[xop]
     SUMSUB2_AB  d, 2, 3, 5
     mova  [r0+16], m0 ; d03*2 + d12
     mova  [r0+24], m2
     mova  [r0+48], m4 ; d03 - 2*d12
     mova  [r0+56], m5
     RET
-%else
+%else ; !HIGH_BIT_DEPTH
 
 %macro SUB_DCT4 0
 cglobal sub4x4_dct, 3,3
 .skip_prologue:
 %if cpuflag(ssse3)
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     mova m5, [pic(hsub_mul)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
 %endif
     LOAD_DIFF8x4 0, 3, 1, 2, 4, 5, r1, r2
-    DCT4_1D 0,1,2,3,4
+    DCT4_1D 0,1,2,3,4 ; PIC*[xop]
     TRANSPOSE4x4W 0,1,2,3,4
     DCT4_1D 0,1,2,3,4
     movq  [r0+ 0], m0
@@ -376,13 +378,13 @@ INIT_MMX mmx
 SUB_DCT4
 INIT_MMX ssse3
 SUB_DCT4
-%endif ; HIGH_BIT_DEPTH
+%endif ; BIT_DEPTH
 
 %if HIGH_BIT_DEPTH
 ;-----------------------------------------------------------------------------
 ; void add4x4_idct( pixel *p_dst, dctcoef dct[4][4] )
 ;-----------------------------------------------------------------------------
-%macro STORE_DIFFx2 6
+%macro STORE_DIFFx2 6 ; PIC
     psrad     %1, 6
     psrad     %2, 6
     packssdw  %1, %2
@@ -390,6 +392,7 @@ SUB_DCT4
     movhps    %3, %6
     paddsw    %1, %3
     PIC_BEGIN
+    CHECK_REG_COLLISION "rpic", %{1:-1}
     CLIPW     %1, %4, [pic(pw_pixel_max)]
     PIC_END
     movq      %5, %1
@@ -408,11 +411,11 @@ cglobal add4x4_idct, 2,2,6
     TRANSPOSE4x4D 0,1,2,3,4
     PIC_BEGIN
     paddd m0, [pic(pd_32)]
-    PIC_END
     IDCT4_1D d,0,1,2,3,4,5
     pxor  m5, m5
-    STORE_DIFFx2 m0, m1, m4, m5, [r0-2*FDEC_STRIDEB], [r0-1*FDEC_STRIDEB]
+    STORE_DIFFx2 m0, m1, m4, m5, [r0-2*FDEC_STRIDEB], [r0-1*FDEC_STRIDEB] ; PIC
     STORE_DIFFx2 m2, m3, m4, m5, [r0+0*FDEC_STRIDEB], [r0+1*FDEC_STRIDEB]
+    PIC_END
     RET
 %endmacro
 
@@ -538,9 +541,11 @@ cglobal_label .skip_prologue
     SBUTTERFLY qdq, 2, 3, 4
     IDCT4_1D w,0,1,2,3,4,5
     TRANSPOSE2x4x4W 0,1,2,3,4
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     paddw m0, [pic(pw_32)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     IDCT4_1D w,0,1,2,3,4,5
     STOREx2_AVX2 0, 1, 4, 5, -4, 0, -3, 1, 7
     STOREx2_AVX2 2, 3, 4, 5, -2, 2, -1, 3, 7
@@ -597,7 +602,7 @@ cglobal sub8x8_dct, 3,3,7
     add r2, 4*FDEC_STRIDE
     LOAD_DIFF8x2_AVX2 0, 1, 4, 5, 0, 1, 4, 5, 6
     LOAD_DIFF8x2_AVX2 2, 3, 4, 5, 2, 3, 6, 7, 6
-    DCT4_1D 0, 1, 2, 3, 4
+    DCT4_1D 0, 1, 2, 3, 4 ; PIC*[xop]
     TRANSPOSE2x4x4W 0, 1, 2, 3, 4
     DCT4_1D 0, 1, 2, 3, 4
     STORE8_DCT_AVX2 0, 1, 2, 3, 4
@@ -624,7 +629,7 @@ cglobal sub16x16_dct, 3,3,6
 .sub16x4_dct:
     LOAD_DIFF16x2_AVX2 0, 1, 4, 5, 0, 1
     LOAD_DIFF16x2_AVX2 2, 3, 4, 5, 2, 3
-    DCT4_1D 0, 1, 2, 3, 4
+    DCT4_1D 0, 1, 2, 3, 4 ; PIC*[xop]
     TRANSPOSE2x4x4W 0, 1, 2, 3, 4
     DCT4_1D 0, 1, 2, 3, 4
     STORE16_DCT_AVX2 0, 1, 2, 3, 4
@@ -700,9 +705,11 @@ cglobal dct4x4x4_internal
 %endmacro
 
 cglobal sub8x8_dct, 3,3
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     mova       m0, [pic(dct_avx512)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     DCT8x8_LOAD_FENC_AVX512 m1, m0, 0, 4 ; 0 2 1 3
     mov       r1d, 0xaaaaaaaa
     kmovd      k1, r1d
@@ -745,9 +752,11 @@ cglobal sub16x16_dct
     RET
 
 cglobal sub8x8_dct_dc, 3,3
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     mova         m3, [pic(dct_avx512)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     DCT8x8_LOAD_FENC_AVX512 m0, m3, 0, 4 ; 0 2 1 3
     mov         r1d, 0xaa
     kmovb        k1, r1d
@@ -771,9 +780,11 @@ cglobal sub8x8_dct_dc, 3,3
     RET
 
 cglobal sub8x16_dct_dc, 3,3
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     mova         m5, [pic(dct_avx512)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     DCT8x8_LOAD_FENC_AVX512 m0, m5, 0, 8  ; 0 4 1 5
     DCT8x8_LOAD_FENC_AVX512 m1, m5, 4, 12 ; 2 6 3 7
     mov         r1d, 0xaa
@@ -863,13 +874,15 @@ cglobal %1, 3,3,%7
     pxor m7, m7
 %else
     add r2, 4*FDEC_STRIDE
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     mova m7, [pic(hsub_mul)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
 %endif
 %endif ; !HIGH_BIT_DEPTH
 .skip_prologue:
-    call %2.skip_prologue
+    call %2.skip_prologue ; TODO: pass $$ rpicl in r3
     add  r0, %3
     add  r1, %4-%5-%6*FENC_STRIDE
     add  r2, %4-%5-%6*FDEC_STRIDE
@@ -1129,6 +1142,7 @@ cglobal add8x8_idct_dc, 2,2
 INIT_MMX mmx2
 cglobal add16x16_idct_dc, 2,3
     mov       r2, 4
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
 .loop:
     mova      m0, [r1]
@@ -1236,12 +1250,14 @@ cglobal add16x16_idct_dc, 2,3,6
     add      r0, FDEC_STRIDE*4
     mova     m0, [r1]
     pxor     m1, m1
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     pmulhrsw m0, [pic(pw_512)]
     psubw    m1, m0
     mova     m4, [pic(pb_unpackbd1)]
     mova     m5, [pic(pb_unpackbd2)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     packuswb m0, m0
     packuswb m1, m1
     pshufb   m2, m0, m4      ; row0, row2
@@ -1362,6 +1378,7 @@ cglobal sub8x16_dct_dc, 3,3
     packssdw   m5, m3
     pshuflw    m0, m5, q2301
     pshufhw    m0, m0, q2301
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     %%sign     m5, [pic(pw_pmpmpmpm)]
     paddw      m0, m5
@@ -1915,6 +1932,7 @@ cglobal zigzag_sub_4x4%1_%2, 3,3,8
     punpckldq  m6, m7
     punpcklqdq m0, m2
     punpcklqdq m4, m6
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     mova      m7, [pic(pb_sub4%2)]
     pshufb    m0, m7
@@ -1929,6 +1947,7 @@ cglobal zigzag_sub_4x4%1_%2, 3,3,8
     pand      m0, [pic(pb_subacmask)]
 %endif
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     mova [r0+ 0], m0
     por       m0, m1
     pxor      m2, m2
@@ -2084,6 +2103,7 @@ cglobal zigzag_interleave_8x8_cavlc, 3,3,8
     packsswb   m5, m5
 %endif
     pcmpeqb    m5, m0
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     paddb      m5, [pic(pb_1)]
     PIC_END
@@ -2137,6 +2157,7 @@ cglobal zigzag_interleave_8x8_cavlc, 3,3,8
     packsswb m2, m2
     packsswb m2, m2
     pcmpeqb  m5, m2
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     paddb    m5, [pic(pb_1)]
     PIC_END
@@ -2158,9 +2179,11 @@ cglobal zigzag_interleave_8x8_cavlc, 3,3,6
     mova   m1, [r1+32]
     mova   m2, [r1+64]
     mova   m3, [r1+96]
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     mova   m5, [pic(deinterleave_shufd)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     SBUTTERFLY wd, 0, 1, 4
     SBUTTERFLY wd, 2, 3, 4
     SBUTTERFLY wd, 0, 1, 4
@@ -2345,9 +2368,11 @@ cglobal zigzag_scan_8x8_field, 2,2
     jmp scan8_avx512
 
 cglobal zigzag_interleave_8x8_cavlc, 3,3
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
     mova       m0, [pic(cavlc_shuf_avx512)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     mova       m1, [r1]
     mova       m2, [r1+64]
     psrlw      m3, m0, 6
