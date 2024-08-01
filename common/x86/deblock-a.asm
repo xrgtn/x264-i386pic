@@ -139,7 +139,7 @@ cextern pb_unpackbd1
     paddw       %1, %2
 %endmacro
 
-%macro LUMA_DEBLOCK_ONE 3
+%macro LUMA_DEBLOCK_ONE 3 ; bm, tcm
     DIFF_LT     m5, %1, bm, m4, m6
     pxor        m6, m6
     mova        %3, m4
@@ -1259,7 +1259,7 @@ cglobal deblock_v_luma, 5,5,10
     pand    m6, m9
     psubb   m7, m8, m6 ; tc++
     pand    m6, m8
-    LUMA_Q1 m0, m3, [r4], [r4+r1], m6, m4
+    LUMA_Q1 m0, m3, [r4], [r4+r1], m6, m4 ; PIC
 
     mova    m4, [r0+2*r1] ; q2
     DIFF_GT2 m2, m4, m5, m6, m3 ; |q2-q0| > beta-1
@@ -1267,9 +1267,9 @@ cglobal deblock_v_luma, 5,5,10
     pand    m8, m6
     psubb   m7, m6
     mova    m3, [r0+r1]
-    LUMA_Q1 m3, m4, [r0+2*r1], [r0+r1], m8, m6
+    LUMA_Q1 m3, m4, [r0+2*r1], [r0+r1], m8, m6 ; PIC
 
-    DEBLOCK_P0_Q0
+    DEBLOCK_P0_Q0 ; PIC x4
     mova    [r4+2*r1], m1
     mova    [r0], m2
     RET
@@ -1403,7 +1403,7 @@ cglobal deblock_%1_luma, 5,5,8,2*(%2)+%cond(PIC==2,(%2),0)
     mova    m3, [r0+r1]
     LUMA_Q1 m3, m4, [r0+2*r1], [r0+r1], m5, m6 ; PIC
 
-    DEBLOCK_P0_Q0 ; PIC
+    DEBLOCK_P0_Q0 ; PIC x4
     PIC_END
     mova    [r4+2*r1], m1
     mova    [r0], m2
@@ -1782,7 +1782,8 @@ DEBLOCK_LUMA_INTRA v8
 ; in: %1=p0, %2=q0, %3=p1, %4=q1, %5=mask, %6=tmp, %7=tmp
 ; out: %1=p0', %2=q0'
 %macro CHROMA_DEBLOCK_P0_Q0_INTRA 7 ; PIC
-    PIC_BEGIN r4
+    PIC_BEGIN
+    CHECK_REG_COLLISION "rpic", %{1:-1}
     mova    %6, [pic(pw_2)]
     PIC_END
     paddw   %6, %3
@@ -1831,7 +1832,7 @@ DEBLOCK_LUMA_INTRA v8
 %endif
 %endmacro
 
-%macro CHROMA_V_LOAD 1
+%macro CHROMA_V_LOAD 1 ; r0, r1
     mova        m0, [r0]    ; p1
     mova        m1, [r0+r1] ; p0
     mova        m2, [%1]    ; q0
@@ -1839,7 +1840,7 @@ DEBLOCK_LUMA_INTRA v8
 %endmacro
 
 ; clobbers: m1, m2, m3
-%macro CHROMA_H_STORE 0-1
+%macro CHROMA_H_STORE 0-1 ; r0, r1
     SBUTTERFLY dq, 1, 2, 3
 %if mmsize == 8
     movq      [r0-4], m1
@@ -1852,66 +1853,84 @@ DEBLOCK_LUMA_INTRA v8
 %endif
 %endmacro
 
-%macro CHROMA_V_STORE 0
+%macro CHROMA_V_STORE 0 ; r0, r1
     mova [r0+1*r1], m1
     mova [r0+2*r1], m2
 %endmacro
 
 %macro DEBLOCK_CHROMA 0
-cglobal deblock_inter_body
+cglobal deblock_inter_body ; r2..r4, PICx2:r6=$$
+    PIC_BEGIN r6, 0, $$
+.skip_prologue:
     LOAD_AB     m4, m5, r2d, r3d
     LOAD_MASK   m0, m1, m2, m3, m4, m5, m7, m6, m4
     pxor        m4, m4
     LOAD_TC     m6, r4
     pmaxsw      m6, m4
     pand        m7, m6
-    DEBLOCK_P0_Q0 m1, m2, m0, m3, m7, m5, m6 ; PIC
+    DEBLOCK_P0_Q0 m1, m2, m0, m3, m7, m5, m6 ; PIC x2
+    PIC_END
     ret
 
 ;-----------------------------------------------------------------------------
 ; void deblock_v_chroma( uint16_t *pix, intptr_t stride, int alpha, int beta, int8_t *tc0 )
 ;-----------------------------------------------------------------------------
 cglobal deblock_v_chroma, 5,7,8
+    PIC_ALLOC
+    PIC_BEGIN r6, 0, $$ ; cache $$ in rpiclcache ; r6 not used yet, don't save
+    PIC_END
     FIX_STRIDES r1
     mov         r5, r0
     sub         r0, r1
     sub         r0, r1
-    mov         r6, 32/mmsize
+    mov         r6, 32/mmsize ; r6 gets written to, its old value is lost
 .loop:
-    CHROMA_V_LOAD r5
-    call        deblock_inter_body
-    CHROMA_V_STORE
+    CHROMA_V_LOAD r5 ; r0, r1
+    PIC_BEGIN r6
+    call        deblock_inter_body %+ SUFFIX %+ .skip_prologue ; r2..r4, PICx2:r6==$$
+    PIC_END
+    CHROMA_V_STORE ; r0, r1
     add         r0, mmsize
     add         r5, mmsize
     add         r4, mmsize/8
     dec         r6
     jg .loop
+    PIC_FREE
     RET
 
 ;-----------------------------------------------------------------------------
 ; void deblock_h_chroma( uint16_t *pix, intptr_t stride, int alpha, int beta, int8_t *tc0 )
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma, 5,7,8
+    PIC_ALLOC
+    PIC_BEGIN r5, 0, $$ ; cache $$ in rpiclcache ; r5 not used yet, don't save
+    PIC_END
     add         r1, r1
-    mov         r5, 32/mmsize
+    mov         r5, 32/mmsize ; r5 gets written to, its old value is lost
 %if mmsize == 16
     lea         r6, [r1*3]
 %endif
 .loop:
-    CHROMA_H_LOAD r6
-    call        deblock_inter_body
-    CHROMA_H_STORE r6
+    CHROMA_H_LOAD r6 ; r0, r1
+    PIC_BEGIN r6
+    call        deblock_inter_body %+ SUFFIX %+ .skip_prologue ; r2..r4, PICx2:r6==$$
+    PIC_END
+    CHROMA_H_STORE r6 ; r0, r1
     lea         r0, [r0+r1*(mmsize/4)]
     add         r4, mmsize/8
     dec         r5
     jg .loop
+    PIC_FREE
     RET
 
 
-cglobal deblock_intra_body
+cglobal deblock_intra_body ; r2, r3, PIC:r6=$$
+    PIC_BEGIN r6, 0, $$
+.skip_prologue:
     LOAD_AB     m4, m5, r2d, r3d
     LOAD_MASK   m0, m1, m2, m3, m4, m5, m7, m6, m4
     CHROMA_DEBLOCK_P0_Q0_INTRA m1, m2, m0, m3, m7, m5, m6 ; PIC
+    PIC_END
     ret
 
 ;-----------------------------------------------------------------------------
@@ -1925,14 +1944,17 @@ cglobal deblock_v_chroma_intra, 4,6,8
     sub         r0, r1
     sub         r0, r1
     SPLATW      m5, m5
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1, $$
 .loop:
-    CHROMA_V_LOAD r4
-    call        deblock_intra_body
-    CHROMA_V_STORE
+    CHROMA_V_LOAD r4 ; r0, r1
+    call        deblock_intra_body %+ SUFFIX %+ .skip_prologue ; r2, r3, PIC:r6==$$
+    CHROMA_V_STORE ; r0, r1
     add         r0, mmsize
     add         r4, mmsize
     dec         r5
     jg .loop
+    PIC_END
     RET
 
 ;-----------------------------------------------------------------------------
@@ -1944,13 +1966,16 @@ cglobal deblock_h_chroma_intra, 4,6,8
 %if mmsize == 16
     lea         r5, [r1*3]
 %endif
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1, $$
 .loop:
-    CHROMA_H_LOAD r5
-    call        deblock_intra_body
-    CHROMA_H_STORE r5
+    CHROMA_H_LOAD r5 ; r0, r1
+    call        deblock_intra_body %+ SUFFIX %+ .skip_prologue ; r2, r3, PIC:r6==$$
+    CHROMA_H_STORE r5 ; r0, r1
     lea         r0, [r0+r1*(mmsize/4)]
     dec         r4
     jg .loop
+    PIC_END
     RET
 
 ;-----------------------------------------------------------------------------
@@ -1960,19 +1985,22 @@ cglobal deblock_h_chroma_intra_mbaff, 4,6,8
     add         r1, r1
 %if mmsize == 8
     mov         r4, 16/mmsize
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1, $$
 .loop:
 %else
     lea         r5, [r1*3]
 %endif
-    CHROMA_H_LOAD r5
+    CHROMA_H_LOAD r5 ; r0, r1
     LOAD_AB     m4, m5, r2d, r3d
     LOAD_MASK   m0, m1, m2, m3, m4, m5, m7, m6, m4
     CHROMA_DEBLOCK_P0_Q0_INTRA m1, m2, m0, m3, m7, m5, m6 ; PIC
-    CHROMA_H_STORE r5
+    CHROMA_H_STORE r5 ; r0, r1
 %if mmsize == 8
     lea         r0, [r0+r1*(mmsize/4)]
     dec         r4
     jg .loop
+    PIC_END
 %endif
     RET
 
@@ -1980,13 +2008,16 @@ cglobal deblock_h_chroma_intra_mbaff, 4,6,8
 ; void deblock_h_chroma_mbaff( uint16_t *pix, intptr_t stride, int alpha, int beta, int8_t *tc0 )
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma_mbaff, 5,7,8
+    PIC_ALLOC
+    PIC_BEGIN r5, 0, $$ ; cache $$ in rpiclcache ; r5 not used yet, don't save
+    PIC_END
     add         r1, r1
     lea         r6, [r1*3]
 %if mmsize == 8
     mov         r5, 16/mmsize
 .loop:
 %endif
-    CHROMA_H_LOAD r6
+    CHROMA_H_LOAD r6 ; r0, r1
     LOAD_AB     m4, m5, r2d, r3d
     LOAD_MASK   m0, m1, m2, m3, m4, m5, m7, m6, m4
     movd      m6, [r4]
@@ -1994,14 +2025,15 @@ cglobal deblock_h_chroma_mbaff, 5,7,8
     psraw m6, 8
     punpcklwd m6, m6
     pand m7, m6
-    DEBLOCK_P0_Q0 m1, m2, m0, m3, m7, m5, m6 ; PIC
-    CHROMA_H_STORE r6
+    DEBLOCK_P0_Q0 m1, m2, m0, m3, m7, m5, m6 ; PIC x2, will use cached rpicl
+    CHROMA_H_STORE r6 ; r0, r1
 %if mmsize == 8
     lea         r0, [r0+r1*(mmsize/4)]
     add         r4, mmsize/4
     dec         r5
     jg .loop
 %endif
+    PIC_FREE
     RET
 
 ;-----------------------------------------------------------------------------
@@ -2013,24 +2045,30 @@ cglobal deblock_h_chroma_422_intra, 4,6,8
 %if mmsize == 16
     lea         r5, [r1*3]
 %endif
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1, $$
 .loop:
-    CHROMA_H_LOAD r5
-    call        deblock_intra_body
-    CHROMA_H_STORE r5
+    CHROMA_H_LOAD r5 ; r0, r1
+    call        deblock_intra_body %+ SUFFIX %+ .skip_prologue ; r2, r3, PIC:r6==$$
+    CHROMA_H_STORE r5 ; r0, r1
     lea         r0, [r0+r1*(mmsize/4)]
     dec         r4
     jg .loop
+    PIC_END
     RET
 
 ;-----------------------------------------------------------------------------
 ; void deblock_h_chroma_422( uint16_t *pix, intptr_t stride, int alpha, int beta, int8_t *tc0 )
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma_422, 5,7,8
+    PIC_ALLOC
+    PIC_BEGIN r5, 0, $$ ; cache $$ in rpiclcache ; r5 not used yet, don't save
+    PIC_END
     add         r1, r1
     mov         r5, 64/mmsize
     lea         r6, [r1*3]
 .loop:
-    CHROMA_H_LOAD r6
+    CHROMA_H_LOAD r6 ; r0, r1
     LOAD_AB     m4, m5, r2m, r3d
     LOAD_MASK   m0, m1, m2, m3, m4, m5, m7, m6, m4
     pxor        m4, m4
@@ -2039,8 +2077,8 @@ cglobal deblock_h_chroma_422, 5,7,8
     SPLATW      m6, m6
     pmaxsw      m6, m4
     pand        m7, m6
-    DEBLOCK_P0_Q0 m1, m2, m0, m3, m7, m5, m6 ; PIC
-    CHROMA_H_STORE r6
+    DEBLOCK_P0_Q0 m1, m2, m0, m3, m7, m5, m6 ; PIC x2, will use cached $$
+    CHROMA_H_STORE r6 ; r0, r1
     lea         r0, [r0+r1*(mmsize/4)]
 %if mmsize == 16
     inc         r4
@@ -2051,6 +2089,7 @@ cglobal deblock_h_chroma_422, 5,7,8
 %endif
     dec         r5
     jg .loop
+    PIC_FREE
     RET
 %endmacro ; DEBLOCK_CHROMA
 
@@ -2129,7 +2168,7 @@ cglobal deblock_v_chroma, 5,6,8
     %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r6, 1, $$
     CHECK_REG_COLLISION "rpic", r0, r1, t5, r0m, r2, r3, r4
-    CHROMA_V_START ; r0, r1, t5, r0m*, .loop*
+    CHROMA_V_START ; r0, r1, t5=r5, r0m*, .loop*
     mova  m0, [t5]
     mova  m1, [t5+r1]
     mova  m2, [r0]
@@ -2137,7 +2176,7 @@ cglobal deblock_v_chroma, 5,6,8
     call chroma_inter_body %+ SUFFIX %+ .skip_prologue ; r2..r4, PICx5:r6->$$
     mova  [t5+r1], m1
     mova  [r0], m2
-    CHROMA_V_LOOP 1 ; r0, r4*, t5, r0m*, jg .loop*
+    CHROMA_V_LOOP 1 ; r0, r4*, t5=r5, r0m*, jg .loop*
     PIC_END
     RET
 
@@ -2148,7 +2187,7 @@ cglobal deblock_h_chroma, 5,7,8
     PIC_ALLOC
     PIC_BEGIN r6, 0, $$ ; cache rpicl=$$ ; r6 is unused at tis point
     PIC_END
-    CHROMA_H_START ; r0, r1, t5, t6
+    CHROMA_H_START ; r0, r1, t5=r5, t6=r6
 %if mmsize==8
     mov   dword r0m, 2
 .loop:
