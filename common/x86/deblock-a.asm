@@ -106,18 +106,17 @@ cextern pb_unpackbd1
 
 ; in: %1=p0, %2=q0, %3=p1, %4=q1, %5=mask, %6=tmp, %7=tmp
 ; out: %1=p0', m2=q0'
-%macro DEBLOCK_P0_Q0 7 ; PIC
+%macro DEBLOCK_P0_Q0 7 ; PIC x2
     psubw   %3, %4
     pxor    %7, %7
-    PIC_BEGIN r4
+    PIC_BEGIN
+    CHECK_REG_COLLISION "rpic", %{1:-1}
     paddw   %3, [pic(pw_4)]
-    PIC_END
     psubw   %7, %5
     psubw   %6, %2, %1
     psllw   %6, 2
     paddw   %3, %6
     psraw   %3, 3
-    PIC_BEGIN r4
     mova    %6, [pic(pw_pixel_max)]
     PIC_END
     CLIPW   %3, %7, %5
@@ -1161,7 +1160,8 @@ DEBLOCK_LUMA_INTRA
     SPLATW   m4, m4
     SPLATW   m5, m5
 %endif
-    PIC_BEGIN r4
+    PIC_BEGIN
+    CHECK_REG_COLLISION "rpic", %{1:-1}
     mova     m6, [pic(pb_1)]
     PIC_END
     psubusb  m4, m6              ; alpha - 1
@@ -1181,9 +1181,9 @@ DEBLOCK_LUMA_INTRA
 ; in: m0=p1 m1=p0 m2=q0 m3=q1 m7=(tc&mask)
 ; out: m1=p0' m2=q0'
 ; clobbers: m0,3-6
-%macro DEBLOCK_P0_Q0 0 ; PIC
+%macro DEBLOCK_P0_Q0 0 ; PIC x4
     pxor    m5, m1, m2   ; p0^q0
-    PIC_BEGIN r4
+    PIC_BEGIN
     pand    m5, [pic(pb_1)] ; (p0^q0)&1
     pcmpeqb m4, m4
     pxor    m3, m4
@@ -1213,7 +1213,8 @@ DEBLOCK_LUMA_INTRA
     pavgb   %6, m1, m2
     pavgb   %2, %6       ; avg(p2,avg(p0,q0))
     pxor    %6, %3
-    PIC_BEGIN r4
+    PIC_BEGIN
+    CHECK_REG_COLLISION "rpic", %{1:-1}
     pand    %6, [pic(pb_1)] ; (p2^avg(p0,q0))&1
     PIC_END
     psubusb %2, %6       ; (p2+((p0+q0+1)>>1))>>1
@@ -2064,7 +2065,7 @@ DEBLOCK_CHROMA
 %endif ; HIGH_BIT_DEPTH
 
 %if HIGH_BIT_DEPTH == 0
-%macro CHROMA_V_START 0
+%macro CHROMA_V_START 0 ; r0, r1, t5, r0m*, .loop*
     mov    t5, r0
     sub    t5, r1
     sub    t5, r1
@@ -2074,14 +2075,14 @@ DEBLOCK_CHROMA
 %endif
 %endmacro
 
-%macro CHROMA_H_START 0
+%macro CHROMA_H_START 0 ; r0, r1, t5, t6
     sub    r0, 4
     lea    t6, [r1*3]
     mov    t5, r0
     add    r0, t6
 %endmacro
 
-%macro CHROMA_V_LOOP 1
+%macro CHROMA_V_LOOP 1 ; r0, r4*, t5, r0m*, jg .loop*
 %if mmsize==8
     add   r0, 8
     add   t5, 8
@@ -2093,7 +2094,7 @@ DEBLOCK_CHROMA
 %endif
 %endmacro
 
-%macro CHROMA_H_LOOP 1
+%macro CHROMA_H_LOOP 1 ; r0, r1, t5, r4*, r0m*, jg .loop*
 %if mmsize==8
     lea   r0, [r0+r1*4]
     lea   t5, [t5+r1*4]
@@ -2109,43 +2110,57 @@ DEBLOCK_CHROMA
 %define t6 r6
 
 %macro DEBLOCK_CHROMA 0
-cglobal chroma_inter_body
-    LOAD_MASK  r2d, r3d ; PIC
+cglobal chroma_inter_body ; r2..r4, PIC x5: r6->$$
+    PIC_BEGIN r6, 0, $$
+.skip_prologue:
+    LOAD_MASK  r2d, r3d ; PIC x1
     movd       m6, [r4] ; tc0
     punpcklbw  m6, m6
     punpcklbw  m6, m6
     pand       m7, m6
-    DEBLOCK_P0_Q0 ; PIC
+    DEBLOCK_P0_Q0 ; PIC x4
+    PIC_END
     ret
 
 ;-----------------------------------------------------------------------------
 ; void deblock_v_chroma( uint8_t *pix, intptr_t stride, int alpha, int beta, int8_t *tc0 )
 ;-----------------------------------------------------------------------------
 cglobal deblock_v_chroma, 5,6,8
-    CHROMA_V_START
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1, $$
+    CHECK_REG_COLLISION "rpic", r0, r1, t5, r0m, r2, r3, r4
+    CHROMA_V_START ; r0, r1, t5, r0m*, .loop*
     mova  m0, [t5]
     mova  m1, [t5+r1]
     mova  m2, [r0]
     mova  m3, [r0+r1]
-    call chroma_inter_body
+    call chroma_inter_body %+ SUFFIX %+ .skip_prologue ; r2..r4, PICx5:r6->$$
     mova  [t5+r1], m1
     mova  [r0], m2
-    CHROMA_V_LOOP 1
+    CHROMA_V_LOOP 1 ; r0, r4*, t5, r0m*, jg .loop*
+    PIC_END
     RET
 
 ;-----------------------------------------------------------------------------
 ; void deblock_h_chroma( uint8_t *pix, intptr_t stride, int alpha, int beta, int8_t *tc0 )
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma, 5,7,8
-    CHROMA_H_START
+    PIC_ALLOC
+    PIC_BEGIN r6, 0, $$ ; cache rpicl=$$ ; r6 is unused at tis point
+    PIC_END
+    CHROMA_H_START ; r0, r1, t5, t6
 %if mmsize==8
     mov   dword r0m, 2
 .loop:
 %endif
     TRANSPOSE4x8W_LOAD PASS8ROWS(t5, r0, r1, t6)
-    call chroma_inter_body
+    PIC_BEGIN r6
+    CHECK_REG_COLLISION "rpic", r2, r3, r4
+    call chroma_inter_body %+ SUFFIX %+ .skip_prologue  ; r2..r4, PICx5:r6->$$
+    PIC_END
     TRANSPOSE8x2W_STORE PASS8ROWS(t5, r0, r1, t6, 2)
-    CHROMA_H_LOOP 1
+    CHROMA_H_LOOP 1 ; r0, r1, t5, r4*, r0m*, jg .loop*
+    PIC_FREE
     RET
 %endmacro ; DEBLOCK_CHROMA
 
@@ -2165,11 +2180,15 @@ DEBLOCK_CHROMA
 cglobal deblock_h_chroma_mbaff, 5,7,8
     CHROMA_H_START
     TRANSPOSE4x4W_LOAD PASS8ROWS(t5, r0, r1, t6)
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
     LOAD_MASK  r2d, r3d ; PIC
     movd       m6, [r4] ; tc0
     punpcklbw  m6, m6
     pand       m7, m6
-    DEBLOCK_P0_Q0 ; PIC
+    DEBLOCK_P0_Q0 ; PIC x4
+    PIC_END
+    %undef rpicsave ; no more PIC in this function
     TRANSPOSE4x2W_STORE PASS8ROWS(t5, r0, r1, t6, 2)
     RET
 %endmacro
@@ -2188,10 +2207,14 @@ cglobal deblock_h_chroma_422, 5,8,8
 %else
     %define cntr dword r0m
 %endif
+    PIC_ALLOC
+    PIC_BEGIN ; cache rpicl
+    PIC_END ; rpiclcf=1
     CHROMA_H_START
     mov  cntr, 32/mmsize
 .loop:
     TRANSPOSE4x8W_LOAD PASS8ROWS(t5, r0, r1, t6)
+    PIC_BEGIN r6
     LOAD_MASK  r2d, r3d ; PIC
     movd       m6, [r4] ; tc0
     punpcklbw  m6, m6
@@ -2202,13 +2225,15 @@ cglobal deblock_h_chroma_422, 5,8,8
     pshufw     m6, m6, q0000
 %endif
     pand       m7, m6
-    DEBLOCK_P0_Q0 ; PIC
+    DEBLOCK_P0_Q0 ; PIC x4
+    PIC_END
     TRANSPOSE8x2W_STORE PASS8ROWS(t5, r0, r1, t6, 2)
     lea   r0, [r0+r1*(mmsize/2)]
     lea   t5, [t5+r1*(mmsize/2)]
     add   r4, mmsize/8
     dec   cntr
     jg .loop
+    PIC_FREE
     RET
 %endmacro
 
@@ -2223,7 +2248,8 @@ DEBLOCK_H_CHROMA_422
 ; out: p0 = (p0 + q1 + 2*p1 + 2) >> 2
 %macro CHROMA_INTRA_P0 3 ; PIC
     pxor    m4, %1, %3
-    PIC_BEGIN r4
+    PIC_BEGIN
+    CHECK_REG_COLLISION "rpic", %{1:-1}
     pand    m4, [pic(pb_1)] ; m4 = (p0^q1)&1
     PIC_END
     pavgb   %1, %3
@@ -2235,20 +2261,21 @@ DEBLOCK_H_CHROMA_422
 %define t6 r5
 
 %macro DEBLOCK_CHROMA_INTRA_BODY 0
-cglobal chroma_intra_body
-    PIC_BEGIN r4
+cglobal chroma_intra_body ; r2, r3, PICx3:r6->$$
+    PIC_BEGIN r6, 0, $$
+.skip_prologue:
     LOAD_MASK r2d, r3d ; PIC
     mova   m5, m1
     mova   m6, m2
     CHROMA_INTRA_P0  m1, m0, m3 ; PIC
     CHROMA_INTRA_P0  m2, m3, m0 ; PIC
-    PIC_END
     psubb  m1, m5
     psubb  m2, m6
     pand   m1, m7
     pand   m2, m7
     paddb  m1, m5
     paddb  m2, m6
+    PIC_END
     ret
 %endmacro
 
@@ -2257,43 +2284,57 @@ cglobal chroma_intra_body
 ; void deblock_v_chroma_intra( uint8_t *pix, intptr_t stride, int alpha, int beta )
 ;-----------------------------------------------------------------------------
 cglobal deblock_v_chroma_intra, 4,5,8
-    CHROMA_V_START
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1, $$
+    CHECK_REG_COLLISION "rpic", r0, r1, t5, r0m, r2, r3, r4 ; t5=r4, t6=r5
+    CHROMA_V_START ; r0, r1, t5, r0m*, .loop*
     mova  m0, [t5]
     mova  m1, [t5+r1]
     mova  m2, [r0]
     mova  m3, [r0+r1]
-    call chroma_intra_body
+    call chroma_intra_body %+ SUFFIX %+ .skip_prologue ; r2, r3, PICx3:r6->$$
     mova  [t5+r1], m1
     mova  [r0], m2
-    CHROMA_V_LOOP 0
+    CHROMA_V_LOOP 0 ; r0, t5, r0m*, jg .loop*
+    PIC_END
     RET
 
 ;-----------------------------------------------------------------------------
 ; void deblock_h_chroma_intra( uint8_t *pix, intptr_t stride, int alpha, int beta )
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma_intra, 4,6,8
-    CHROMA_H_START
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1, $$
+    CHECK_REG_COLLISION "rpic", r0, r1, t5, r0m, r2, r3, r4, t6 ; t5=r4, t6=r5
+    CHROMA_H_START ; r0, r1, t5, r0m*, .loop*
 %if mmsize==8
     mov   dword r0m, 2
 .loop:
 %endif
     TRANSPOSE4x8W_LOAD  PASS8ROWS(t5, r0, r1, t6)
-    call chroma_intra_body
+    call chroma_intra_body %+ SUFFIX %+ .skip_prologue ; r2, r3, PICx3:r6->$$
     TRANSPOSE8x2W_STORE PASS8ROWS(t5, r0, r1, t6, 2)
-    CHROMA_H_LOOP 0
+    CHROMA_H_LOOP 0 ; r0, t5, r0m*, jg .loop*
+    PIC_END
     RET
 
 cglobal deblock_h_chroma_422_intra, 4,7,8
-    CHROMA_H_START
-    mov   r6d, 32/mmsize
+    PIC_ALLOC
+    PIC_BEGIN r6, 0, $$ ; cache rpicl=$$ ; r6 is unused at tis point
+    PIC_END
+    CHROMA_H_START ; r0, r1, t5, r0m*, .loop*
+    mov   r6d, 32/mmsize ; r6 is written to, its old value is lost
 .loop:
     TRANSPOSE4x8W_LOAD  PASS8ROWS(t5, r0, r1, t6)
-    call chroma_intra_body
+    PIC_BEGIN r6 ; rpiclcache=$$
+    call chroma_intra_body %+ SUFFIX %+ .skip_prologue ; r2, r3, PICx3:r6->$$
+    PIC_END
     TRANSPOSE8x2W_STORE PASS8ROWS(t5, r0, r1, t6, 2)
     lea   r0, [r0+r1*(mmsize/2)]
     lea   t5, [t5+r1*(mmsize/2)]
     dec  r6d
     jg .loop
+    PIC_FREE
     RET
 %endmacro ; DEBLOCK_CHROMA_INTRA
 
@@ -2314,9 +2355,12 @@ DEBLOCK_CHROMA_INTRA
 ;-----------------------------------------------------------------------------
 INIT_MMX mmx2
 cglobal deblock_h_chroma_intra_mbaff, 4,6,8
-    CHROMA_H_START
+    CHROMA_H_START ; r0, r1, t5, r0m*, .loop*
     TRANSPOSE4x4W_LOAD  PASS8ROWS(t5, r0, r1, t6)
-    call chroma_intra_body
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1, $$
+    call chroma_intra_body %+ SUFFIX %+ .skip_prologue ; r2, r3, PICx3:r6->$$
+    PIC_END
     TRANSPOSE4x2W_STORE PASS8ROWS(t5, r0, r1, t6, 2)
     RET
 %endif ; !HIGH_BIT_DEPTH
@@ -2439,7 +2483,8 @@ cglobal deblock_strength, 5,5,7
     LOAD_BYTES_XMM nnz, 1
     por       m0, m2
     por       m1, m2
-    PIC_BEGIN r4
+    PIC_BEGIN r4, 0 ; r4 is not used anymore in this function
+    CHECK_REG_COLLISION "rpic", "bs0", "bs1"
     mova      m6, [pic(pb_1)]
     pminub    m0, m6
     pminub    m1, m6
@@ -2481,9 +2526,10 @@ DEBLOCK_STRENGTH_XMM
 
 INIT_YMM avx2
 cglobal deblock_strength, 5,5,8
-    PIC_BEGIN r4
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6
+    CHECK_REG_COLLISION "rpic", "t0d", "r5m", "ref", "mv", "nnz", "bs0", "bs1"
     mova            m6, [pic(load_bytes_ymm_shuf)]
-    PIC_END
     ; Prepare mv comparison register
     shl            r4d, 8
     add            r4d, 3 - (1<<8)
@@ -2528,16 +2574,13 @@ cglobal deblock_strength, 5,5,8
 
     ; Check nnz
     LOAD_BYTES_YMM nnz
-    PIC_BEGIN r4
     mova            m2, [pic(pb_1)]
-    PIC_END
     por             m0, m1
     pminub          m0, m2
     pminub          m4, m2 ; mv  ? 1 : 0
     paddb           m0, m0 ; nnz ? 2 : 0
     pmaxub          m0, m4
     vextracti128 [bs1], m0, 1
-    PIC_BEGIN r4
     pshufb         xm0, [pic(transpose_shuf)]
     PIC_END
     mova         [bs0], xm0
@@ -2550,9 +2593,10 @@ cglobal deblock_strength, 5,5,8
 
 INIT_ZMM avx512
 cglobal deblock_strength, 5,5
-    PIC_BEGIN r4
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6
+    CHECK_REG_COLLISION "rpic", "t0d", "r5m", "mv", "ref", "nnz", "bs0", "bs1"
     mova            m6, [pic(load_bytes_zmm_shuf)]
-    PIC_END
     shl            r4d, 8
     add            r4d, 3 - (1<<8)
     vpbroadcastw    m5, r4d
@@ -2588,15 +2632,12 @@ cglobal deblock_strength, 5,5
     jge .lists
 
     LOAD_BYTES_ZMM nnz
-    PIC_BEGIN r4
     mova           ym2, [pic(pb_1)]
-    PIC_END
     vptestmw        k1, m1, m1
     vptestmw        k2, m3, m3
     vpaddb         ym0 {k1}{z}, ym2, ym2 ; nnz ? 2 : 0
     vpmaxub        ym0 {k2}, ym2         ; mv  ? 1 : 0
     vextracti128 [bs1], ym0, 1
-    PIC_BEGIN r4
     pshufb         xm0, [pic(transpose_shuf)]
     PIC_END
     mova         [bs0], xm0
