@@ -451,7 +451,7 @@ cglobal_label .skip_prologue
     ; x264_8_sub8x8_dct_ssse3,
     ; x264_8_sub8x8_dct_avx,
     ; x264_8_sub8x8_dct_xop: PIC x1, just do default push/pop
-    %define rpicsave
+    %define rpicsave ; enable push/pop rpic
 %endif
 %if cpuflag(ssse3)
     PIC_BEGIN
