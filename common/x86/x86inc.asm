@@ -768,7 +768,7 @@ rpicl:          pop rpic
     %if PIC==2
         ASSERT (stack_size_padded >= stack_size)
         %if picallocd != 0
-            %error %strcat(%?, " in non-zero picallocd state (",\
+            %error %strcat(%?, " in non-zero PIC_ALLOC state (",\
                 picallocd, ")")
         %endif
         ; Estimate required stack %%wpad (used on WIN64)
@@ -904,7 +904,7 @@ rpicl:          pop rpic
                 %assign stack_size_padded stack_size_padded-%%G
                 %assign stack_size        0
             %else
-                %error %strcat(%?, " in invalid picallocd state (",\
+                %error %strcat(%?, " in invalid PIC_ALLOC state (",\
                     picallocd, ")")
             %endif
             %undef  rpicsave
@@ -1394,6 +1394,11 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
             ") at end of ", %str(current_function))
         %assign picb 0 ; silence further PIC error messages
     %endif
+    %if picallocd != 0
+        %error %strcat("invalid PIC_ALLOC state (", picallocd,\
+            ") at end of ", %str(current_function))
+        %assign picallocd 0 ; silence further PIC error messages
+    %endif
     %if has_epilogue || cpuflag(ssse3)
         RET
     %else
@@ -1408,6 +1413,11 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
         %error %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
             ") at end of ", %str(current_function))
         %assign picb 0 ; silence further PIC error messages
+    %endif
+    %if picallocd != 0
+        %error %strcat("invalid PIC_ALLOC state (", picallocd,\
+            ") at end of ", %str(current_function))
+        %assign picallocd 0 ; silence further PIC error messages
     %endif
     %if notcpuflag(ssse3)
         times ((last_branch_adr-$)>>31)+1 rep ; times 1 iff $ == last_branch_adr.
@@ -1497,6 +1507,11 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
         %error %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
             ") at start of ", %str(current_function))
         %assign picb 0 ; silence further PIC error messages
+    %endif
+    %if picallocd != 0
+        %error %strcat("invalid PIC_ALLOC state (", picallocd,\
+            ") at start of ", %str(current_function))
+        %assign picallocd 0 ; silence further PIC error messages
     %endif
     RESET_MM_PERMUTATION        ; needed for x86-64, also makes disassembly somewhat nicer
     %xdefine rstk rsp           ; copy of the original stack pointer, used when greater alignment than the known stack alignment is required
