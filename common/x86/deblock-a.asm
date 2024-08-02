@@ -2167,7 +2167,7 @@ cglobal chroma_inter_body ; r2..r4, PIC x5: r6->$$
 cglobal deblock_v_chroma, 5,6,8
     %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r6, 1, $$
-    CHECK_REG_COLLISION "rpic", r0, r1, t5, r0m, r2, r3, r4
+    CHECK_REG_COLLISION "rpic", "t5", "r0m"
     CHROMA_V_START ; r0, r1, t5=r5, r0m*, .loop*
     mova  m0, [t5]
     mova  m1, [t5+r1]
@@ -2194,7 +2194,6 @@ cglobal deblock_h_chroma, 5,7,8
 %endif
     TRANSPOSE4x8W_LOAD PASS8ROWS(t5, r0, r1, t6)
     PIC_BEGIN r6
-    CHECK_REG_COLLISION "rpic", r2, r3, r4
     call chroma_inter_body %+ SUFFIX %+ .skip_prologue  ; r2..r4, PICx5:r6->$$
     PIC_END
     TRANSPOSE8x2W_STORE PASS8ROWS(t5, r0, r1, t6, 2)
@@ -2325,7 +2324,7 @@ cglobal chroma_intra_body ; r2, r3, PICx3:r6->$$
 cglobal deblock_v_chroma_intra, 4,5,8
     %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r6, 1, $$
-    CHECK_REG_COLLISION "rpic", r0, r1, t5, r0m, r2, r3, r4 ; t5=r4, t6=r5
+    CHECK_REG_COLLISION "rpic", "t5", "r0m" ; t5==r4
     CHROMA_V_START ; r0, r1, t5, r0m*, .loop*
     mova  m0, [t5]
     mova  m1, [t5+r1]
@@ -2344,7 +2343,7 @@ cglobal deblock_v_chroma_intra, 4,5,8
 cglobal deblock_h_chroma_intra, 4,6,8
     %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r6, 1, $$
-    CHECK_REG_COLLISION "rpic", r0, r1, t5, r0m, r2, r3, r4, t6 ; t5=r4, t6=r5
+    CHECK_REG_COLLISION "rpic", "t5", "r0m", "t6" ; t5==r4, t6==r5
     CHROMA_H_START ; r0, r1, t5, r0m*, .loop*
 %if mmsize==8
     mov   dword r0m, 2
