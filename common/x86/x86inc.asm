@@ -984,7 +984,7 @@ DECLARE_REG_ID ah, ch, dh, bh
     %if %isidn(%%r, %%w) || %isidn(%%rt, %%wt) || %%rid==%%wid
         %error %strcat(%%rz, " collision with %", %3, ": ", %%az)
     %elif picb > 0
-        %if rpicsf && %isndef(rpicsave) && %%wid==reg_id_of_rsp
+        %if rpicsf && %isempty(rpicsave) && %%wid==reg_id_of_rsp
             ; Modify stack_offset and 'expand' arg[i] again. Then check
             ; if expansion of arg[i] depends on stack_offset or not.
             %xdefine %%so stack_offset
