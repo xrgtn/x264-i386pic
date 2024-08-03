@@ -682,7 +682,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %assign lpicno lpicno+1
             %assign %%rpiclchanged 0
             %if rpiclcf
-                mov rpic, rpiclcache
+                movifnidn rpic, rpiclcache
             %else
                 %xdefine rpicl lpic
                 %assign %%rpiclchanged 1
@@ -697,7 +697,7 @@ rpicl:          pop rpic
             %endif
             %if %%rpiclchanged
                 %ifdef rpiclcache
-                    mov rpiclcache, rpic
+                    movifnidn rpiclcache, rpic
                     %assign rpiclcf 1
                 %endif
             %endif
