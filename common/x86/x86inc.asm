@@ -626,10 +626,14 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; automatically (typically rpicsf=0 when regs_used < 3).
 ; If label parameter is given, initialize rpic with its address instead of
 ; address of .lpicN label.
-; If rpicsf is set and rpicsave has been defined beforehand, use rpicsave
-; to save current contents of rpic register instead of pushing it to stack.
-; If rpiclcf has been set beforehand, load previous rpicl label address from it
-; and don't perform call/pop initialization.
+; If rpicsf is not set (is zero), don't save current contents of rpic register;
+; otherwize:
+; * if rpicsave has been defined beforehand and is not empty, use rpicsave to
+;   save current contents of rpic register to;
+; * if rpicsave is empty, push current rpic contents to stack;
+; * if rpicsave is undef, generate %error.
+; If rpiclcf has been set beforehand, load previous rpicl label address from
+; rpiclcache and don't perform call/pop initialization.
 %macro PIC_BEGIN 0-3
     %if PIC == 2
         %if picb == 0
