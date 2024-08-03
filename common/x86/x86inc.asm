@@ -950,8 +950,8 @@ DECLARE_REG_ID ah, ch, dh, bh
     %xdefine %%rt %tok(%%r)
     %xdefine %%rs %str(%%rt)
     %xdefine %%rz %%rs
-    %ifnidn %%r, %%rt
-        %xdefine %%rz %strcat(%%r, "=", %%rt)
+    %if %isnidn(%%r, %%rt) && %isnidn(%%r, %%rs)
+        %xdefine %%rz %strcat(%%r, "=", %%rs)
     %endif
     %xdefine %%rid -1
     %ifid %%rt
@@ -964,8 +964,8 @@ DECLARE_REG_ID ah, ch, dh, bh
     %xdefine %%at %tok(%%a)
     %xdefine %%as %str(%%at)
     %xdefine %%az %%as
-    %ifnidn %%a, %%at
-        %xdefine %%az %strcat(%%a, "=", %%at)
+    %if %isnidn(%%a, %%at) && %isnidn(%%a, %%as)
+        %xdefine %%az %strcat(%%a, "=", %%as)
     %endif
 
     %xdefine %%w %%2
