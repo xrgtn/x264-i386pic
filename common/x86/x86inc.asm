@@ -730,7 +730,6 @@ rpicl:          pop rpic
 ; * undefines rpic and rpicsf,
 ; * undefines rpicl, if rpiclcache is not defined;
 ;   - otherwize it keeps rpicl defined after PIC_BEGIN/END block is finished;
-undefines rpic
 %macro PIC_END 0
     %if PIC == 2
         %assign picb picb-1
