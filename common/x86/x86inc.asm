@@ -743,7 +743,16 @@ rpicl:          pop rpic
             %endif
             %undef rpic
             %if !rpiclcf
-                %undef rpicl
+                %ifdef rpiclcache
+                    ; It's possible to change rpiclcache location (inside
+                    ; PIC_BEGIN/END block too) by redefining rpiclcache and
+                    ; unsetting rpiclcf flag. Then the topmost PIC_END will
+                    ; update new rpiclcache and set rpiclcf:
+                    movifnidn rpiclcache, rpic
+                    %assign rpiclcf 1
+                %else
+                    %undef rpicl
+                %endif
             %endif
             %undef rpicsf
         %endif
