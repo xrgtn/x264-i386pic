@@ -757,6 +757,12 @@ rpicl:          pop rpic
                 %else
                     mov rpic, rpicsave
                 %endif
+                %ifidn rpic, rpiclcache
+                    ; restoring into rpiclcache invalidates cache; having
+                    ; rpicsf set while rpic==rpiclcache is an error:
+                    %error %strcat("rpicsf set while rpic=rpiclcache=", \
+                        rpiclcache)
+                %endif
             %endif
             %undef rpic
             %undef rpicsf
