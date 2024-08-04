@@ -684,7 +684,10 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             ; override rpicsf if fsave is present:
             %if %0 >=2
                 %ifnempty %2
-                    %xdefine rpicsf %2
+                    ; ignore %2 if rpic==rpiclcache
+                    %if %rpic_auto != -1
+                        %xdefine rpicsf %2
+                    %endif
                 %endif
             %endif
             %if rpicsf
