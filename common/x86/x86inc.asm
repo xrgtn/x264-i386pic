@@ -725,12 +725,11 @@ rpicl:          pop rpic
 %endmacro
 ; PIC_END closes current PIC_BEGIN/END block and decrements picb.
 ; When closing last (topmost) block:
-; * PIC_END restores previous value of register used for rpic
-;   (if rpicsf is set),
+; * PIC_END updates rpiclcache if it's defined and rpiclcf==0,
+; * restores previous value of register used for rpic, if rpicsf is set;
 ; * undefines rpic and rpicsf,
 ; * undefines rpicl, if rpiclcache is not defined;
 ;   - otherwize it keeps rpicl defined after PIC_BEGIN/END block is finished;
-; * updates rpiclcache if it's defined and rpiclcf==0.
 undefines rpic
 %macro PIC_END 0
     %if PIC == 2
@@ -740,6 +739,16 @@ undefines rpic
                 %str(current_function))
             %assign picb 0 ; silence further PIC error messages
         %elif picb == 0
+            %ifdef rpiclcache
+                %if !rpiclcf ; if not cached / cache invalid:
+                    ; Update rpiclcache:
+                    movifnidn rpiclcache, rpic
+                    %assign rpiclcf 1
+                %endif
+            %else
+                %undef rpicl
+                %assign rpiclcf 0
+            %endif
             %if rpicsf
                 %ifndef rpicsave
                     ; %error %strcat("unsafe to pop rpic in ", \
@@ -752,18 +761,6 @@ undefines rpic
             %endif
             %undef rpic
             %undef rpicsf
-            %if !rpiclcf
-                %ifdef rpiclcache
-                    ; It's possible to change rpiclcache location (inside
-                    ; PIC_BEGIN/END block too) by redefining rpiclcache and
-                    ; unsetting rpiclcf flag. Then the topmost PIC_END will
-                    ; update new rpiclcache and set rpiclcf:
-                    movifnidn rpiclcache, rpic
-                    %assign rpiclcf 1
-                %else
-                    %undef rpicl
-                %endif
-            %endif
         %endif
     %endif
 %endmacro
