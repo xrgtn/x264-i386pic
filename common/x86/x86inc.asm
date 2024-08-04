@@ -621,7 +621,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 
 ; PIC_BEGIN [reg[, fsave[, label]]]
 ; Initialize PIC block to use reg as rpic, or select rpic automatically (r2
-; if regs_used < 3 or r5 otherwize).
+; if regs_used < 3 or r5 otherwize). NOTE: if rpiclcache is defined beforehand
+; and expands to a general purpose register, rpiclcache register will be used
+; for rpic, overriding reg parameter and auto-selection.
 ; If fsave flag is given, use it to override rpicsf which is decided
 ; automatically (typically rpicsf=0 when regs_used < 3).
 ; If label parameter is given, initialize rpic with its address instead of
@@ -643,10 +645,22 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                     %assign %%rpic_auto 0
                 %endif
             %endif
+            %if %isdef(rpiclcache) && %isid(rpiclcache)
+                ; %ifdef reg_id_of_ %+ ... won't work, use reg_id_of_%[...]:
+                %ifdef reg_id_of_%[rpiclcache]
+                    ; rpiclcache is a register, can use it for rpic
+                    %assign %%rpic_auto -1
+                %endif
+            %endif
             ; cglobal foo_asm, 0,0,0,a,b,c,d,e in fact uses 5 registers (a:r0,
             ; b:r1 etc), it just doesn't do push/pop for them. Number of
             ; "register aliases" is indicated in n_arg_names
-            %if %%rpic_auto == 0
+            %if %%rpic_auto == -1
+                %xdefine rpic rpiclcache
+                %assign rpicsf 0
+                ;%warning %strcat("using ", rpiclcache, " for rpic in ", \
+                ;    current_function)
+            %elif %%rpic_auto == 0
                 %xdefine rpic %1
                 %assign rpicsf 1
             %elifndef regs_used ; unknown number of regs used
