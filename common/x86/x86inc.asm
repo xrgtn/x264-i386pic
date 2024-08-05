@@ -777,28 +777,24 @@ rpicl:          pop rpic
 
 %macro NEXT_LPIC 0 ; returns label name in next_lpic xdef
     %undef next_lpic
-    %ifidn %str(current_function),"current_function"
-        %assign %%global 1
-    %elifid current_function
-        %assign %%global 0
-    %else
-        %assign %%global 1
-    %endif
-    %if %%global
-        %ifndef global_lpicno
-            %assign global_lpicno 0
+    %if %isnidn(%str(current_function),"current_function") && \
+            %isid(current_function)
+        ; current_function is defined and expands to ID
+        %ifndef lpicno_%[current_function]
+            ; first ..@lpicN in this function
+            %assign lpicno_%[current_function] 0
         %else
-            %assign global_lpicno global_lpicno+1
-        %endif
-        %xdefine next_lpic ..@lpic%[global_lpicno]
-    %else
-        %ifndef %[current_function]_lpicno
-            %assign %[current_function]_lpicno 0
-        %else
-            %assign %[current_function]_lpicno %[current_function]_lpicno+1
+            %assign lpicno_%[current_function] lpicno_%[current_function]+1
         %endif
         %xdefine next_lpic \
-            ..@lpic%[%[current_function]_lpicno]_%[current_function]
+            ..@lpic%[lpicno_%[current_function]]_%[current_function]
+    %else
+        %ifndef lpicno_
+            %assign lpicno_ 0
+        %else
+            %assign lpicno_ lpicno_+1
+        %endif
+        %xdefine next_lpic ..@lpic%[lpicno_]
     %endif
 %endmacro
 
