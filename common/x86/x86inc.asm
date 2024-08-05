@@ -422,13 +422,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; * rpiclcache       rpicl cache location (e.g. [rstk+stack_offset-N]), if
 ;                    defined.
 ; * rpiclcf          "rpicl cached" flag.
-; * NEXT_LPIC        generates unique label:
-;                    * in current_function.lpicN format, if inside "cglobal"
-;                      function
-;                    * in lpicN format otherwize
+; * NEXT_LPIC        generates unique label in ..@lpicN or ..@lpicN_XXX format
 ;                    and puts the result in next_lpic xdef.
-; * global_lpicno    current/latest .lpic number.
-; * foo_lpicno       current/latest .lpic number in foo function.
+; * lpicno_xxx       current/latest .lpic number per function/module etc.
 ; * PIC64_LEA        initializes rpic64/rpic64l and sets pic64 flag.
 ; * pic64            0  expand pic(a) to (a) in x86_64 PIC mode 1
 ;                    1  expand pic(a) to (rpic+(a)-rpicl) in PIC mode 1
@@ -710,6 +706,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %if rpiclcf
                 movifnidn rpic, rpiclcache
             %else
+                NEXT_LPIC
                 %xdefine rpicl lpic
                 %assign %%rpiclchanged 1
                 call rpicl
@@ -793,7 +790,7 @@ rpicl:          pop rpic
         %else
             %assign global_lpicno global_lpicno+1
         %endif
-        %xdefine next_lpic lpic%[global_lpicno]
+        %xdefine next_lpic ..@lpic%[global_lpicno]
     %else
         %ifndef %[current_function]_lpicno
             %assign %[current_function]_lpicno 0
@@ -801,7 +798,7 @@ rpicl:          pop rpic
             %assign %[current_function]_lpicno %[current_function]_lpicno+1
         %endif
         %xdefine next_lpic \
-            %[current_function].lpic%[%[current_function]_lpicno]
+            ..@lpic%[%[current_function]_lpicno]_%[current_function]
     %endif
 %endmacro
 
