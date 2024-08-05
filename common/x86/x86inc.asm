@@ -422,8 +422,13 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; * rpiclcache       rpicl cache location (e.g. [rstk+stack_offset-N]), if
 ;                    defined.
 ; * rpiclcf          "rpicl cached" flag.
-; * lpic             returns local label in .lpicN format, N is 1,2,..
-; * lpicno           current/latest .lpic number.
+; * NEXT_LPIC        generates unique label:
+;                    * in current_function.lpicN format, if inside "cglobal"
+;                      function
+;                    * in lpicN format otherwize
+;                    and puts the result in next_lpic xdef.
+; * global_lpicno    current/latest .lpic number.
+; * foo_lpicno       current/latest .lpic number in foo function.
 ; * PIC64_LEA        initializes rpic64/rpic64l and sets pic64 flag.
 ; * pic64            0  expand pic(a) to (a) in x86_64 PIC mode 1
 ;                    1  expand pic(a) to (rpic+(a)-rpicl) in PIC mode 1
@@ -444,11 +449,11 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                      therefore it's included in PIC conext; also see rstk)
 ;                    * stack_size (see rstk)
 ;                    * stack_size_padded (see rstk)
-;                    Note that lpicno is not part of PIC context (rpicl is
-;                    enough), and pic64, rpic64 and rpic64l do not have
-;                    limiting structure like BEGIN/END blocks over them
-;                    and thus do not require context push/pop hack.
 ; * PIC_CONTEXT_POP  restores PIC context previously saved by PIC_CONTEXT_PUSH.
+;                    Note that global_lpicno/foo_lpicno are not part of PIC
+;                    context (rpicl is enough); while pic64, rpic64 and rpic64l
+;                    do not have limiting structure like BEGIN/END blocks over
+;                    them and thus do not require context push/pop hack.
 
 %define pic(a) %cond(PIC==2, (rpic+(a)-rpicl),\
                      %cond(pic64, (rpic64+(a)-rpic64l), (a)))
@@ -770,6 +775,33 @@ rpicl:          pop rpic
             %undef rpic
             %undef rpicsf
         %endif
+    %endif
+%endmacro
+
+%macro NEXT_LPIC 0 ; returns label name in next_lpic xdef
+    %undef next_lpic
+    %ifidn %str(current_function),"current_function"
+        %assign %%global 1
+    %elifid current_function
+        %assign %%global 0
+    %else
+        %assign %%global 1
+    %endif
+    %if %%global
+        %ifndef global_lpicno
+            %assign global_lpicno 0
+        %else
+            %assign global_lpicno global_lpicno+1
+        %endif
+        %xdefine next_lpic lpic%[global_lpicno]
+    %else
+        %ifndef %[current_function]_lpicno
+            %assign %[current_function]_lpicno 0
+        %else
+            %assign %[current_function]_lpicno %[current_function]_lpicno+1
+        %endif
+        %xdefine next_lpic \
+            %[current_function].lpic%[%[current_function]_lpicno]
     %endif
 %endmacro
 
