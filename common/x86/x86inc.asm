@@ -781,20 +781,27 @@ rpicl:          pop rpic
             %isid(current_function)
         ; current_function is defined and expands to ID
         %ifndef lpicno_%[current_function]
-            ; first ..@lpicN in this function
+            ; first ..@lpic label in this function: assign no=0 to label inside
+            ; the function and fid=inc(lpicfid) to the function:
             %assign lpicno_%[current_function] 0
+            %ifndef lpicfid
+                %assign lpicfid 0
+            %else
+                %assign lpicfid lpicfid+1
+            %endif
+            %assign lpicfid_%[current_function] lpicfid
         %else
             %assign lpicno_%[current_function] lpicno_%[current_function]+1
         %endif
         %xdefine next_lpic \
-            ..@lpic%[lpicno_%[current_function]]_%[current_function]
+            ..@lpic%[lpicfid_%[current_function]]_%[lpicno_%[current_function]]
     %else
         %ifndef lpicno_
             %assign lpicno_ 0
         %else
             %assign lpicno_ lpicno_+1
         %endif
-        %xdefine next_lpic ..@lpic%[lpicno_]
+        %xdefine next_lpic ..@lpic_%[lpicno_]
     %endif
 %endmacro
 
