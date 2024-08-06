@@ -652,6 +652,9 @@ cglobal predict_8x8_filter, 4,6,6
 %define t1 r1
 %define t4 r4
 %endif
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6
+    CHECK_REG_COLLISION "rpic","t1","t4"
     test       r3b, 1
     je .check_top
     mov        t4d, r2d
@@ -696,7 +699,7 @@ INIT_XMM cpuname
     lea         r3, [shuf_fixtr]
     pshufb      m3, [r3+r2*4]
 %else
-    PIC_BEGIN r5
+    PIC_BEGIN
     pshufb      m3, [pic(shuf_fixtr)+r2*4] ; neighbor&MB_TOPRIGHT ? shuf_nop : shuf_fixtr
     PIC_END
 %endif
@@ -708,6 +711,7 @@ INIT_XMM cpuname
     psrldq      m0, 15
     movd        [t1+32*SIZEOF_PIXEL], m0
 .done:
+    PIC_END
     REP_RET
 .fix_lt_2:
     pslldq      m0, m3, 15
@@ -736,6 +740,7 @@ INIT_XMM cpuname
     PSRLPIX     m0, m0, 7
     movd        [t1+32*SIZEOF_PIXEL], m0
 .done:
+    PIC_END
     REP_RET
 .fix_lt_2:
     PSLLPIX     m0, m3, 7
@@ -1039,7 +1044,7 @@ PREDICT_8x8_HU w, bw
 ; void predict_8x8_vr( pixel *src, pixel *edge )
 ;-----------------------------------------------------------------------------
 %macro PREDICT_8x8_VR 1
-cglobal predict_8x8_vr, 2,3
+cglobal predict_8x8_vr, 2,2
     mova        m2, [r1+16*SIZEOF_PIXEL]
 %ifidn cpuname, ssse3
     mova        m0, [r1+8*SIZEOF_PIXEL]
@@ -1051,6 +1056,9 @@ cglobal predict_8x8_vr, 2,3
 %endif
     pavg%1      m4, m3, m2
     add         r0, FDEC_STRIDEB*4
+%if HIGH_BIT_DEPTH==0
+    PIC_BEGIN
+%endif
     PRED8x8_LOWPASS m3, m1, m2, m3, m5 ; PIC*[!HIGH_BIT_DEPTH]
     mova        [r0-4*FDEC_STRIDEB], m4
     mova        [r0-3*FDEC_STRIDEB], m3
@@ -1058,6 +1066,9 @@ cglobal predict_8x8_vr, 2,3
     PSLLPIX     m0, m1, 1
     PSLLPIX     m2, m1, 2
     PRED8x8_LOWPASS m0, m1, m2, m0, m6 ; PIC*[!HIGH_BIT_DEPTH]
+%if HIGH_BIT_DEPTH==0
+    PIC_END
+%endif
 
 %assign Y -2
 %rep 5
