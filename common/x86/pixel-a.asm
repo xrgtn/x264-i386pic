@@ -1074,7 +1074,7 @@ cglobal pixel_var2_8x%1, 2,3,7
 %endif
     pxor       m0, m0 ; sum
     pxor       m1, m1 ; sqr
-    mov       t0d, (%1-1)*FENC_STRIDEB
+    mov       t0d, (%1-1)*FENC_STRIDEB ; TODO: unroll t0d .loop
 .loop:
 %if HIGH_BIT_DEPTH
     mova       m2, [r0+1*t0]
