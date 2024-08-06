@@ -456,8 +456,6 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 %assign picb 0
 %assign rpiclcf 0
 %assign picallocd 0
-%define lpic .lpic %+ lpicno
-%assign lpicno 0
 %assign pic64 0
 
 ; PIC_CONTEXT_PUSH/POP macro pair is useful when code returns or jumps out from
@@ -701,13 +699,12 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                     mov rpicsave, rpic
                 %endif
             %endif
-            %assign lpicno lpicno+1
             %assign %%rpiclchanged 0
             %if rpiclcf
                 movifnidn rpic, rpiclcache
             %else
                 NEXT_LPIC
-                %xdefine rpicl lpic
+                %xdefine rpicl next_lpic
                 %assign %%rpiclchanged 1
                 call rpicl
 rpicl:          pop rpic
