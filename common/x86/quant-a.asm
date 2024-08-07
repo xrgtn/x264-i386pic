@@ -114,7 +114,7 @@ cextern pd_1024
 cextern deinterleave_shufd
 cextern popcnt_table
 
-%macro QUANT_DC_START 2 ; r1m, r2m, PIC*
+%macro QUANT_DC_START 2 ; r1m,2m; m5, PIC*[!avx2 & 8bit & sse4]
     movd      xm%1, r1m     ; mf
     movd      xm%2, r2m     ; bias
 %if cpuflag(avx2)
@@ -135,7 +135,7 @@ cextern popcnt_table
 %endif
 %endmacro
 
-%macro QUANT_END 0 ; eax/al, rcx/ecx
+%macro QUANT_END 0 ; eax,rcx*; m4*,5
     xor      eax, eax
 %if cpuflag(sse4)
     ptest     m5, m5
@@ -163,7 +163,7 @@ cextern popcnt_table
 %endmacro
 
 %if HIGH_BIT_DEPTH
-%macro QUANT_ONE_DC 4
+%macro QUANT_ONE_DC 4 ; m0..2*
 %if cpuflag(sse4)
     mova        m0, [%1]
     ABSD        m1, m0
@@ -187,7 +187,7 @@ cextern popcnt_table
     ACCUM     por, 5, 1, %4
 %endmacro
 
-%macro QUANT_TWO_DC 4
+%macro QUANT_TWO_DC 4 ; m0..3*,5*
 %if cpuflag(sse4)
     mova        m0, [%1       ]
     mova        m1, [%1+mmsize]
@@ -211,7 +211,7 @@ cextern popcnt_table
 %endif ; cpuflag
 %endmacro
 
-%macro QUANT_ONE_AC_MMX 5
+%macro QUANT_ONE_AC_MMX 5 ; m0..4
     mova        m0, [%1]
     mova        m2, [%2]
     ABSD        m1, m0
@@ -230,7 +230,7 @@ cextern popcnt_table
     ACCUM      por, %5, 1, %4
 %endmacro
 
-%macro QUANT_TWO_AC 5
+%macro QUANT_TWO_AC 5 ; m0..4*
 %if cpuflag(sse4)
     mova        m0, [%1       ]
     mova        m1, [%1+mmsize]
@@ -259,17 +259,20 @@ cextern popcnt_table
 ;-----------------------------------------------------------------------------
 %macro QUANT_DC 2
 cglobal quant_%1x%2_dc, 3,3,8
-    QUANT_DC_START 6,7 ; r1m, r2m, PIC*
+    ; nominate some scratch reg for PIC:
+    %xdefine rpiclcache %cond(ARCH_X86_64, r3, r1);r1m is used, r1 is not
+    %assign  rpiclcf 0
+    QUANT_DC_START 6,7 ; r1m,2m; m5..7, PIC*[!avx2 & 8bit & sse4]
 %if %1*%2 <= mmsize/4
-    QUANT_ONE_DC r0, m6, m7, 0
+    QUANT_ONE_DC r0, m6, m7, 0 ; r0, m0..2*,6,7
 %else
 %assign x 0
 %rep %1*%2/(mmsize/2)
-    QUANT_TWO_DC r0+x, m6, m7, x
+    QUANT_TWO_DC r0+x, m6, m7, x ; r0, m0..3*,5*..7
 %assign x x+mmsize*2
 %endrep
 %endif
-    QUANT_END ; eax/al, rcx/ecx
+    QUANT_END ; eax,rcx*; m4*,5
     RET
 %endmacro
 
@@ -280,21 +283,21 @@ cglobal quant_%1x%2_dc, 3,3,8
 cglobal quant_%1x%2, 3,3,8
 %assign x 0
 %rep %1*%2/(mmsize/2)
-    QUANT_TWO_AC r0+x, r1+x, r2+x, x, 5
+    QUANT_TWO_AC r0+x, r1+x, r2+x, x, 5 ; r0..2, m0..4*,5
 %assign x x+mmsize*2
 %endrep
-    QUANT_END ; eax/al, rcx/ecx
+    QUANT_END ; eax,rcx*; m4*,5
     RET
 %endmacro
 
-%macro QUANT_4x4 2 ; r0..r2
+%macro QUANT_4x4 2 ; r0..2, m0..4*
     QUANT_TWO_AC r0+%1+mmsize*0, r1+mmsize*0, r2+mmsize*0, 0, %2
     QUANT_TWO_AC r0+%1+mmsize*2, r1+mmsize*2, r2+mmsize*2, 1, %2
 %endmacro
 
 %macro QUANT_4x4x4 0
 cglobal quant_4x4x4, 3,3,8
-    QUANT_4x4  0, 5 ; r0..r2
+    QUANT_4x4  0, 5 ; r0..2
     QUANT_4x4 64, 6
     add       r0, 128
     packssdw  m5, m6
@@ -337,8 +340,8 @@ QUANT_AC 8, 8
 
 INIT_YMM avx2
 cglobal quant_4x4x4, 3,3,6
-    QUANT_TWO_AC r0,    r1, r2, 0, 4
-    QUANT_TWO_AC r0+64, r1, r2, 0, 5
+    QUANT_TWO_AC r0,    r1, r2, 0, 4 ; r0..2, m0..4
+    QUANT_TWO_AC r0+64, r1, r2, 0, 5 ; r0..2, m0..4*,5
     add       r0, 128
     packssdw  m4, m5
     QUANT_TWO_AC r0,    r1, r2, 0, 5
@@ -357,7 +360,7 @@ cglobal quant_4x4x4, 3,3,6
 %endif ; HIGH_BIT_DEPTH
 
 %if HIGH_BIT_DEPTH == 0
-%macro QUANT_ONE 5
+%macro QUANT_ONE 5 ; m0,1
 ;;; %1      (m64)       dct[y][x]
 ;;; %2      (m64/mmx)   mf[y][x] or mf[0][0] (as uint16_t)
 ;;; %3      (m64/mmx)   bias[y][x] or bias[0][0] (as uint16_t)
@@ -370,7 +373,7 @@ cglobal quant_4x4x4, 3,3,6
     ACCUM     por, %5, 0, %4
 %endmacro
 
-%macro QUANT_TWO 8
+%macro QUANT_TWO 8 ; m0..3
     mova       m1, %1
     mova       m3, %2
     ABSW       m0, m1, sign
@@ -392,18 +395,21 @@ cglobal quant_4x4x4, 3,3,6
 ;-----------------------------------------------------------------------------
 %macro QUANT_DC 2-3 0
 cglobal %1, 1,1,%3
+    ; nominate some scratch reg for PIC:
+    %xdefine rpiclcache %cond(ARCH_X86_64, r3, r1);r1m is used, r1 is not
+    %assign  rpiclcf 0
 %if %2==1
-    QUANT_DC_START 2,3 ; r1m, r2m, PIC*
-    QUANT_ONE [r0], m2, m3, 0, 5
+    QUANT_DC_START 2,3 ; r1m,2m; m2,3,5; PIC*[!avx2 & 8bit & sse4]
+    QUANT_ONE [r0], m2, m3, 0, 5 ; r0, m0..3,5
 %else
-    QUANT_DC_START 4,6 ; r1m, r2m, PIC*
+    QUANT_DC_START 4,6 ; r1m,2m; m4..6, PIC*[!avx2 & 8bit & sse4]
 %assign x 0
 %rep %2/2
-    QUANT_TWO [r0+x], [r0+x+mmsize], m4, m4, m6, m6, x, 5
+    QUANT_TWO [r0+x], [r0+x+mmsize], m4, m4, m6, m6, x, 5 ; r0, m0..6
 %assign x x+mmsize*2
 %endrep
 %endif
-    QUANT_END ; eax/al, rcx/ecx
+    QUANT_END ; eax,rcx*; m4*,5
     RET
 %endmacro
 
@@ -413,19 +419,19 @@ cglobal %1, 1,1,%3
 %macro QUANT_AC 2
 cglobal %1, 3,3
 %if %2==1
-    QUANT_ONE [r0], [r1], [r2], 0, 5
+    QUANT_ONE [r0], [r1], [r2], 0, 5 ; r0..2, m0,1,5
 %else
 %assign x 0
 %rep %2/2
-    QUANT_TWO [r0+x], [r0+x+mmsize], [r1+x], [r1+x+mmsize], [r2+x], [r2+x+mmsize], x, 5
+    QUANT_TWO [r0+x], [r0+x+mmsize], [r1+x], [r1+x+mmsize], [r2+x], [r2+x+mmsize], x, 5; r0..2, m0..3,5
 %assign x x+mmsize*2
 %endrep
 %endif
-    QUANT_END ; eax/al, rcx/ecx
+    QUANT_END ; eax,rcx*; m4*,5
     RET
 %endmacro
 
-%macro QUANT_4x4 2 ; r0, r1*, r2*
+%macro QUANT_4x4 2 ; r0,1*,2*; m8*..11*
 %if UNIX64
     QUANT_TWO [r0+%1+mmsize*0], [r0+%1+mmsize*1], m8, m9, m10, m11, mmsize*0, %2
 %else
@@ -444,11 +450,11 @@ cglobal quant_4x4x4, 3,3,7
     mova     m10, [r2+mmsize*0]
     mova     m11, [r2+mmsize*1]
 %endif
-    QUANT_4x4  0, 4 ; r0, r1*, r2*
-    QUANT_4x4 32, 5 ; r0, r1*, r2*
+    QUANT_4x4  0, 4 ; r0,1*,2*; m4,m8*..11*
+    QUANT_4x4 32, 5 ; r0,1*,2*; m5,m8*..11*
     packssdw  m4, m5
-    QUANT_4x4 64, 5 ; r0, r1*, r2*
-    QUANT_4x4 96, 6 ; r0, r1*, r2*
+    QUANT_4x4 64, 5 ; r0,1*,2*; m5,m8*..11*
+    QUANT_4x4 96, 6 ; r0,1*,2*; m6,m8*..11*
     packssdw  m5, m6
     packssdw  m4, m5  ; AAAA BBBB CCCC DDDD
     pxor      m3, m3
@@ -497,11 +503,11 @@ INIT_YMM avx2
 cglobal quant_4x4x4, 3,3,6
     mova      m2, [r1]
     mova      m3, [r2]
-    QUANT_ONE [r0+ 0], m2, m3, 0, 4
-    QUANT_ONE [r0+32], m2, m3, 0, 5
+    QUANT_ONE [r0+ 0], m2, m3, 0, 4 ; r0, m0..4
+    QUANT_ONE [r0+32], m2, m3, 0, 5 ; r0, m0..3,5
     packssdw  m4, m5
-    QUANT_ONE [r0+64], m2, m3, 0, 5
-    QUANT_ONE [r0+96], m2, m3, 0, 1
+    QUANT_ONE [r0+64], m2, m3, 0, 5 ; r0, m0..3,5
+    QUANT_ONE [r0+96], m2, m3, 0, 1 ; r0, m0..3
     packssdw  m5, m1
     packssdw  m4, m5
     pxor      m3, m3
@@ -520,7 +526,7 @@ cglobal quant_4x4x4, 3,3,6
 ; dequant
 ;=============================================================================
 
-%macro DEQUANT16_L 4
+%macro DEQUANT16_L 4 ; m0..2
 ;;; %1      dct[y][x]
 ;;; %2,%3   dequant_mf[i_mf][y][x]
 ;;; m2      i_qbits
@@ -545,7 +551,7 @@ cglobal quant_4x4x4, 3,3,6
 %endif
 %endmacro
 
-%macro DEQUANT32_R 4
+%macro DEQUANT32_R 4 ; m0..4*
 ;;; %1      dct[y][x]
 ;;; %2,%3   dequant_mf[i_mf][y][x]
 ;;; m2      -i_qbits
@@ -581,37 +587,64 @@ cglobal quant_4x4x4, 3,3,6
 %endif
 %endmacro
 
-%macro DEQUANT_LOOP 3 ; r0, r1, t0*
-%if 8*(%2-2*%3) > 0
-    mov t0d, 8*(%2-2*%3)
-%%loop:
-    %1 [r0+(t0     )*SIZEOF_PIXEL], [r1+t0*2      ], [r1+t0*2+ 8*%3], [r0+(t0+ 4*%3)*SIZEOF_PIXEL]
-    %1 [r0+(t0+8*%3)*SIZEOF_PIXEL], [r1+t0*2+16*%3], [r1+t0*2+24*%3], [r0+(t0+12*%3)*SIZEOF_PIXEL]
-    sub t0d, 16*%3
-    jge %%loop
+%macro DEQUANT_LOOP 3 ; r0,1; t0*, jge %%loop, RET
+    %assign %%a 8*((%2)-(2*(%3)))
+    %assign %%b 16*(%3)
+    %assign %%n %cond(%%a <= 0, 0, (%%a/%%b) + 1)
+    ; ------------------------------------ ;
+    ;          %1     %2 %3 | %%a  %%b %%n ;
+    ; ----------------------+------------- ;
+    ; DEQUANT16_L  4*4/4, 1 |  16 - 16  x2 ; m0..2
+    ; DEQUANT16_L  4*4/4, 2 |   0 - 32  x0 ;
+    ; DEQUANT16_L  4*4/4, 4 | -32 - 64  x0 ;
+    ; DEQUANT16_L  8*8/4, 1 | 112 - 16  x8 ; max loop unroll is 8 times
+    ; DEQUANT16_L  8*8/4, 2 |  96 - 32  x4 ;
+    ; DEQUANT16_L  8*8/4, 4 |  64 - 64  x2 ;
+    ; DEQUANT32_R  4*4/4, 1 |  16 - 16  x2 ; m0..4*
+    ; DEQUANT32_R  4*4/4, 2 |   0 - 32  x0 ;
+    ; DEQUANT32_R  4*4/4, 4 | -32 - 64  x0 ;
+    ; DEQUANT32_R  8*8/4, 1 | 112 - 16  x8 ;
+    ; DEQUANT32_R  8*8/4, 2 |  96 - 32  x4 ;
+    ; DEQUANT32_R  8*8/4, 4 |  64 - 64  x2 ;
+    ; ------------------------------------ ;
+    %assign %%c 4*(%3)
+%if %%a > 0
+    %rep %%n
+    %1  [r0+(%%a+0*%%c)*SIZEOF_PIXEL], [r1+(%%a+0*%%c)*2],\
+        [r1+(%%a+1*%%c)*2           ], [r0+(%%a+1*%%c)*SIZEOF_PIXEL]
+    %1  [r0+(%%a+2*%%c)*SIZEOF_PIXEL], [r1+(%%a+2*%%c)*2], \
+        [r1+(%%a+3*%%c)*2           ], [r0+(%%a+3*%%c)*SIZEOF_PIXEL]
+        %assign %%a %%a-%%b
+        %if %%a < 0
+            %exitrep
+        %endif
+    %endrep
+    ASSERT %%a < 0
     RET
 %else
 %if mmsize < 32
-    %1 [r0+(8*%3)*SIZEOF_PIXEL], [r1+16*%3], [r1+24*%3], [r0+(12*%3)*SIZEOF_PIXEL]
+    %1  [r0+(0  +2*%%c)*SIZEOF_PIXEL], [r1+(0  +2*%%c)*2], \
+        [r1+(0  +3*%%c)*2           ], [r0+(0  +3*%%c)*SIZEOF_PIXEL]
 %endif
-    %1 [r0+(0   )*SIZEOF_PIXEL], [r1+0    ], [r1+ 8*%3], [r0+( 4*%3)*SIZEOF_PIXEL]
+    %1  [r0+(0  +0*%%c)*SIZEOF_PIXEL], [r1+(0  +0*%%c)*2], \
+        [r1+(0  +1*%%c)*2           ], [r0+(0  +1*%%c)*SIZEOF_PIXEL]
     RET
 %endif
 %endmacro
 
-%macro DEQUANT16_FLAT 2-5 ; r0
+%macro DEQUANT16_FLAT 2-5 ; r0, m0,1*..3*,4
     mova   m0, %1
     psllw  m0, m4
-%assign i %0-2
+%assign %%i %0-2
 %rep %0-1
-%if i
-    mova   m %+ i, [r0+%2]
-    pmullw m %+ i, m0
+%if %%i
+    mova   m %+ %%i, [r0+%2]
+    pmullw m %+ %%i, m0
 %else
     pmullw m0, [r0+%2]
 %endif
-    mova   [r0+%2], m %+ i
-    %assign i i-1
+    mova   [r0+%2], m %+ %%i
+    %assign %%i %%i-1
     %rotate 1
 %endrep
 %endmacro
@@ -622,7 +655,7 @@ cglobal quant_4x4x4, 3,3,6
     DECLARE_REG_TMP 2,0,1
 %endif
 
-%macro DEQUANT_START 2 ; r0*, r1, r2, r0mp*, r1mp*, r2m, t0..t2, jl .rshift32
+%macro DEQUANT_START 2 ; r0*,1,2; r0mp*,1mp*,2m; t0..t2, jl .rshift32
     movifnidn t2d, r2m
     imul t0d, t2d, 0x2b
     shr  t0d, 8     ; i_qbits = i_qp / 6
@@ -646,22 +679,26 @@ cglobal quant_4x4x4, 3,3,6
 %macro DEQUANT 3
 cglobal dequant_%1x%1, 0,3,6
 .skip_prologue:
-    DEQUANT_START %2+2, %2 ; r0*, r1, r2, r0mp*, r1mp*, r2m, t0..t2, jl .rshift32
+    DEQUANT_START %2+2, %2 ; r0*,1,2; r0mp*,1mp*,2m; t0..t2, jl .rshift32
 
 .lshift:
     movd xm2, t0d
-    DEQUANT_LOOP DEQUANT16_L, %1*%1/4, %3 ; r0, r1, t0*
+    DEQUANT_LOOP DEQUANT16_L, %1*%1/4, %3 ; r0,1; t0*, jge %%loop, RET
 
 .rshift32:
     neg   t0d
-    PIC_BEGIN
+    movd xm2, t0d
+    ; t0d was read only in `movd xm2, t0d' instruction, which we moved to above
+    ; of `mova m3, [pic(pd_1)]'.
+    ; When the DEQUANT_LOOP below uses t0d, it writes to it first. So we can
+    ; forego saving/restoring t0 in this PIC block:
+    PIC_BEGIN t0, 0
     mova  m3, [pic(pd_1)]
     PIC_END
-    movd xm2, t0d
     pslld m3, xm2
     pxor  m4, m4
     psrld m3, 1
-    DEQUANT_LOOP DEQUANT32_R, %1*%1/4, %3 ; r0, r1, t0*
+    DEQUANT_LOOP DEQUANT32_R, %1*%1/4, %3 ; r0,1; t0*, jge %%loop, RET
 
 %if HIGH_BIT_DEPTH == 0 && (notcpuflag(avx) || mmsize == 32)
 cglobal dequant_%1x%1_flat16, 0,3
@@ -679,17 +716,21 @@ cglobal dequant_%1x%1_flat16, 0,3
     shl  t2d, %2
 %if ARCH_X86_64
     lea  r1, [dequant%1_scale]
-    add  r1, t2 ; t2==r2
+    add  r1, t2
 %else
-    PIC_BEGIN
-    lea  r1, [pic(dequant%1_scale) + t2] ; t2==r1
+    ; r0 is reset (on i386) 7 lines below by `movifnidn r0, r0mp'
+    PIC_BEGIN r0, 0 ; thus we don't need to save it here.
+    CHECK_REG_COLLISION "rpic","t2" ; t2==r1 here, but just in case.
+    lea  r1, [t2 + pic(dequant%1_scale)]
+    ; e.g. `lea r1, [r1 + (r0+(dequant4_scale)-..@lpic2_0)]'
     PIC_END
 %endif
-    movifnidn r0, r0mp
+    movifnidn r0, r0mp ; r0 is reset here (on i386)
     movd xm4, t0d
+    ; From this point only r0 and r1 general purpose registers are used:
 %if %1 == 4
 %if mmsize == 8
-    DEQUANT16_FLAT [r1], 0, 16 ; r0
+    DEQUANT16_FLAT [r1], 0, 16 ; r0,1; m0,1*..3*,4
     DEQUANT16_FLAT [r1+8], 8, 24
 %elif mmsize == 16
     DEQUANT16_FLAT [r1], 0, 16
@@ -756,7 +797,7 @@ DEQUANT 4, 4, 4
 DEQUANT 8, 6, 4
 %endif
 
-%macro DEQUANT_START_AVX512 1-2 0 ; shift, flat; r0, r1, r0mp, r2m*, t0..t2, %def dmf/t2+pic(), PIC
+%macro DEQUANT_START_AVX512 1-2 0 ; shift, flat; r0,1; r0m,1m*,2m*; t0..2, %def dmf/t2+pic()*[%2]
 %if %2 == 0
     movifnidn t2d, r2m
 %endif
@@ -768,10 +809,10 @@ DEQUANT 8, 6, 4
     shl  t2d, %1
 %if %2
 %if ARCH_X86_64
-%define dmf r1+t2
+%define dmf r1+t2 ; r1+r2
     lea   r1, [dequant8_scale]
 %else
-%define dmf t2+pic(dequant8_scale)
+%define dmf t2+pic(dequant8_scale) ; r1+pic(dequant8_scale)
 %endif
 %elif ARCH_X86_64
 %define dmf r1+t2
@@ -784,10 +825,8 @@ DEQUANT 8, 6, 4
 
 INIT_ZMM avx512
 cglobal dequant_4x4, 0,3
-    DEQUANT_START_AVX512 6 ; shift, flat; r0, r1, r0mp, r2m*, t0..t2, %def* dmf==t2+pic(), PIC
-    PIC_BEGIN
-    mova          m0, [dmf]
-    PIC_END
+    DEQUANT_START_AVX512 6 ; shift, flat; r0,1; r0m,1m*,2m*; t0..2, %def dmf/t2+pic()*[%2]
+    mova          m0, [dmf] ; dmf==r1
 %if HIGH_BIT_DEPTH
     pmaddwd       m0, [r0]
 %endif
@@ -825,9 +864,8 @@ cglobal dequant_4x4, 0,3
     RET
 
 cglobal dequant_8x8, 0,3
-    DEQUANT_START_AVX512 8 ; shift, flat; r0, r1, r0mp, r2m*, t0..t2, %def* dmf==t2+pic(), PIC
-    PIC_BEGIN
-    mova          m0, [dmf+0*64]
+    DEQUANT_START_AVX512 8 ; shift, flat; r0,1; r0m,1m*,2m*; t0..2, %def dmf/t2+pic()*[%2]
+    mova          m0, [dmf+0*64] ; dmf=r1
     mova          m1, [dmf+1*64]
     mova          m2, [dmf+2*64]
     mova          m3, [dmf+3*64]
@@ -837,9 +875,12 @@ cglobal dequant_8x8, 0,3
     pmaddwd       m2, [r0+2*64]
     pmaddwd       m3, [r0+3*64]
 %else
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN
     mova          m6, [pic(dequant_shuf_avx512)]
-%endif
     PIC_END
+    %undef rpicsave ; no more PIC in this function
+%endif
     sub          t0d, 6
     jl .rshift
 %if HIGH_BIT_DEPTH
@@ -904,10 +945,11 @@ cglobal dequant_8x8_flat16, 0,3
     cmp          t2d, 12
     jl dequant_8x8_avx512
     sub          t2d, 12
-    DEQUANT_START_AVX512 6, 1 ; shift, flat; r0, r1, r0mp, r2m*, t0..t2, %def* dmf==t2+pic(), PIC
+    DEQUANT_START_AVX512 6, 1 ; shift, flat; r0,1; r0m,1m*,2m*; t0..2, %def dmf/t2+pic()*[%2]
     vpbroadcastw  m0, t0d
-    PIC_BEGIN
-    mova          m1, [dmf]
+    PIC_BEGIN t0, 0 ; t0/r2 isn't used anymore, can forego saving
+    CHECK_REG_COLLISION "rpic","t2","r0"
+    mova          m1, [dmf] ; dmf==t2+pic(dequant8_scale); t2==r1
     PIC_END
     vpsllvw       m1, m0
     pmullw        m0, m1, [r0]
@@ -921,7 +963,7 @@ cglobal dequant_8x8_flat16, 0,3
 
 %macro DEQUANT_DC 2
 cglobal dequant_4x4dc, 0,3,6
-    DEQUANT_START 6, 6 ; r0*, r1, r2, r0mp*, r1mp*, r2m, t0..t2, jl .rshift32
+    DEQUANT_START 6, 6 ; r0*,1,2; r0mp*,1mp*,2m; t0..t2, jl .rshift32
 
 .lshift:
 %if cpuflag(avx2)
@@ -947,10 +989,13 @@ cglobal dequant_4x4dc, 0,3,6
 %else
     movd     xm2, [r1]
 %endif
-    PIC_BEGIN
+    ; t0/r2 isn't used after `movd xm3, t0d', which we moved up to be
+    ; above `mova m5, [pic(p%1_1)]' instruction inside PIC block:
+    movd     xm3, t0d
+    PIC_BEGIN t0, 0 ; no need saving t0 (t0==r2), not used anymore
+    CHECK_REG_COLLISION "rpic","r0"
     mova      m5, [pic(p%1_1)]
     PIC_END
-    movd     xm3, t0d
     pslld     m4, m5, xm3
     psrld     m4, 1
 %if HIGH_BIT_DEPTH
@@ -1173,6 +1218,7 @@ cglobal optimize_chroma_2x2_dc, 0,6-cpuflag(sse4),7
 %else
     pxor      m4, m4
 %endif
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
 %if cpuflag(ssse3)
     mova      m3, [pic(chroma_dc_dct_mask)]
@@ -1187,6 +1233,7 @@ cglobal optimize_chroma_2x2_dc, 0,6-cpuflag(sse4),7
     punpcklqdq m1, m1            ;  3  2  1  0  3  2  1  0
     mova      m6, [pic(pd_1024)] ; 32<<5, elements are shifted 5 bits to the left
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     PSIGNW    m0, m3             ; -1 -0  3  2 -1 -0  3  2
     PSIGNW    m2, m5             ;  +  -  -  +  -  -  +  +
     paddw     m0, m1             ; -1+3 -0+2  1+3  0+2 -1+3 -0+2  1+3  0+2
@@ -1388,7 +1435,7 @@ cglobal denoise_dct, 4,4,4
 ; int decimate_score( dctcoef *dct )
 ;-----------------------------------------------------------------------------
 
-%macro DECIMATE_MASK 4
+%macro DECIMATE_MASK 4 ; in:[%3+],%4; out:m0..4, %1,%2
 %if HIGH_BIT_DEPTH
     mova      m0, [%3+0*16]
     packssdw  m0, [%3+1*16]
@@ -1407,7 +1454,7 @@ cglobal denoise_dct, 4,4,4
     pmovmskb  %2, m0
 %endmacro
 
-%macro DECIMATE_MASK16_AVX512 0 ; r0, PIC
+%macro DECIMATE_MASK16_AVX512 0 ; in:[r0]; PIC; out:m0; k0,1
     mova      m0, [r0]
 %if HIGH_BIT_DEPTH
     vptestmd  k0, m0, m0
@@ -1446,12 +1493,16 @@ cextern_common decimate_table8
 
 %macro DECIMATE4x4 1
 
-; For x86_64 it's actually `cglobal decimate_score%1, 1,5', because it uses r4
-; and r5. But because r4/r5 aren't preserved by callee on win64 or unix64,
-; `1,5' behaves the same as `1,3' there.
+; For x86_64 it's actually `cglobal decimate_score%1, 1,6'? because it uses r4
+; and r5. But because r4/r5 aren't preserved by callee on WIN64 or SYSV x86_64,
+; `1,6' behaves the same as `1,3' there.
 cglobal decimate_score%1, 1,3
+    %define rpicsave ; safe to push/pop rpic
+    ; Use r6/r7-based PIC for whole function body:
+    PIC_BEGIN r6, 1
+    CHECK_REG_COLLISION "rpic","eax","edx","ecx"
 %if cpuflag(avx512)
-    DECIMATE_MASK16_AVX512 ; r0, PIC
+    DECIMATE_MASK16_AVX512 ; in:[r0]; PIC; out:m0; k0,1
     xor   eax, eax
     kmovw edx, k0
 %if %1 == 15
@@ -1463,9 +1514,7 @@ cglobal decimate_score%1, 1,3
     ktestw k1, k1
     jnz .ret9
 %else
-    PIC_BEGIN r4
-    DECIMATE_MASK edx, eax, r0, [pic(pb_1)]
-    PIC_END
+    DECIMATE_MASK edx, eax, r0, [pic(pb_1)] ; in:[r0+],[pic()]; out:m0..4, edx,eax
     xor   edx, 0xffff
     jz .ret
     test  eax, eax
@@ -1481,9 +1530,7 @@ cglobal decimate_score%1, 1,3
     %define mask_table pic(decimate_mask_table4)
 %endif
     movzx ecx, dl
-    PIC_BEGIN r4
     movzx eax, byte [mask_table + rcx]
-    PIC_END
 %if ARCH_X86_64
     xor   edx, ecx
     jz .ret
@@ -1497,7 +1544,7 @@ cglobal decimate_score%1, 1,3
     sub    r5, rcx
 %endif
     %define table r5
-%else ; ARCH
+%else ; !ARCH_X86_64
     cmp   edx, ecx
     jz .ret
     bsr   ecx, ecx
@@ -1508,18 +1555,20 @@ cglobal decimate_score%1, 1,3
     tzcnt ecx, edx
     shr   edx, 1
     SHRX  edx, ecx
-    PIC_BEGIN r4
     add    al, byte [table + rcx]
     add    al, byte [mask_table + rdx]
-    PIC_END
 .ret:
+    PIC_CONTEXT_PUSH
+    PIC_END
     REP_RET
+    PIC_CONTEXT_POP
 .ret9:
     mov   eax, 9
+    PIC_END
     RET
 %endmacro
 
-%macro DECIMATE_MASK64_AVX2 2 ; nz_low, nz_high; r0, PIC, jnc .ret9
+%macro DECIMATE_MASK64_AVX2 2 ; nz_low, nz_high ; in:[r0+]; PIC; out:m0..4*, %1*,%2*; jnc .ret9
     mova      m0, [r0+0*32]
     packsswb  m0, [r0+1*32]
     mova      m1, [r0+2*32]
@@ -1541,7 +1590,7 @@ cglobal decimate_score%1, 1,3
     pmovmskb  %2, m1
 %endmacro
 
-%macro DECIMATE_MASK64_AVX512 0 ; r0, PIC, jnz .ret9
+%macro DECIMATE_MASK64_AVX512 0 ; in:[r0+]; PIC x2*; out:m0..3*, k0..2*, jnz .ret9
     mova            m0, [r0]
 %if HIGH_BIT_DEPTH
     packssdw        m0, [r0+1*64]
@@ -1579,7 +1628,7 @@ cglobal decimate_score%1, 1,3
 %if ARCH_X86_64
 cglobal decimate_score64, 1,5
 %if mmsize == 64
-    DECIMATE_MASK64_AVX512
+    DECIMATE_MASK64_AVX512 ; in:[r0+]; PIC x2*; out:m0..3*, k0..2*, jnz .ret9
     xor     eax, eax
 %if HIGH_BIT_DEPTH
     kmovq    r1, k1
@@ -1592,7 +1641,7 @@ cglobal decimate_score64, 1,5
     kmovq    r1, k1
 %endif
 %elif mmsize == 32
-    DECIMATE_MASK64_AVX2 r1d, eax
+    DECIMATE_MASK64_AVX2 r1d, eax ; in:[r0+]; PIC; out:m0..4*, r1d*,eax*; jnc .ret9
     not    r1
     shl   rax, 32
     xor    r1, rax
@@ -1638,9 +1687,11 @@ cglobal decimate_score64, 1,5
 
 %else ; ARCH
 cglobal decimate_score64, 1,4
-    PIC_BEGIN r5
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN
+    CHECK_REG_COLLISION "rpic","eax","r0m","ecx"
 %if mmsize == 64
-    DECIMATE_MASK64_AVX512 ; r0, PIC, jnz .ret9
+    DECIMATE_MASK64_AVX512 ; in:[r0+]; PIC x2*; out:m0..3*, k0..2*, jnz .ret9
     xor     eax, eax
 %if HIGH_BIT_DEPTH
     kshiftrq k2, k1, 32
@@ -1650,24 +1701,24 @@ cglobal decimate_score64, 1,4
     test     r2, r2
     jz .tryret
 %elif mmsize == 32
-    DECIMATE_MASK64_AVX2 r2, r3 ; nz_low, nz_high; r0, PIC, jnc .ret9
+    DECIMATE_MASK64_AVX2 r2, r3 ; in:[r0+]; PIC; out:m0..4*, r2*,r3*; jnc .ret9
     xor   eax, eax
     not    r3
     xor    r2, -1
     jz .tryret
 %else
     mova   m5, [pic(pb_1)]
-    DECIMATE_MASK r2, r1, r0+SIZEOF_DCTCOEF* 0, m5
+    DECIMATE_MASK r2, r1, r0+SIZEOF_DCTCOEF* 0, m5 ; in:[r0+],m5; out:m0..4, r2,1
     test   r1, r1
     jnz .ret9
-    DECIMATE_MASK r3, r1, r0+SIZEOF_DCTCOEF*16, m5
+    DECIMATE_MASK r3, r1, r0+SIZEOF_DCTCOEF*16, m5 ; in:[r0+],m5; out:m0..4, r3,1
     not    r2
     shl    r3, 16
     xor    r2, r3
     mov   r0m, r2
-    DECIMATE_MASK r3, r2, r0+SIZEOF_DCTCOEF*32, m5
+    DECIMATE_MASK r3, r2, r0+SIZEOF_DCTCOEF*32, m5 ; in:[r0+],m5; out:m0..4, r3,2
     or     r2, r1
-    DECIMATE_MASK r1, r0, r0+SIZEOF_DCTCOEF*48, m5
+    DECIMATE_MASK r1, r0, r0+SIZEOF_DCTCOEF*48, m5 ; in:[r0+],m5; out:m0..4, r1,0
     add    r0, r2
     jnz .ret9
     mov    r2, r0m
@@ -2205,6 +2256,7 @@ COEFF_LEVELRUN 16
 %macro COEFF_LEVELRUN_LUT 1
 cglobal coeff_level_run%1, 2,4+(%1/9)
     PIC64_LEA r5, $$
+    CHECK_REG_COLLISION "rpic64","eax"
     LAST_MASK_LUT %1, eax, r0-(%1&1)*SIZEOF_DCTCOEF
 %if %1==15
     shr     eax, 1
@@ -2245,6 +2297,7 @@ cglobal coeff_level_run%1, 2,4+(%1/9)
 ;
 ; The overlapping, dependent stores almost surely cause a mess of
 ; forwarding issues, but it's still enormously faster.
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r5
 %if %1 > 8
     movzx   eax, byte [pic(popcnt_table)+r4]
