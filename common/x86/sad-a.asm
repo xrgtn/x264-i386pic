@@ -457,7 +457,7 @@ cglobal intra_sad_x3_4x4_mmx2, 3,3
 ;m5 = pixel row
 ;m4 = temp
 
-%macro INTRA_SAD_HVDC_ITER 2 ; r0
+%macro INTRA_SAD_HVDC_ITER 2 ; r0, m0..7
     movq      m5, [r0+FENC_STRIDE*%1]
     movq      m4, m5
     psadbw    m4, m0
@@ -471,7 +471,7 @@ cglobal intra_sad_x3_4x4_mmx2, 3,3
 %endmacro
 
 INIT_MMX
-cglobal intra_sad_x3_8x8_mmx2, 3,3
+cglobal intra_sad_x3_8x8_mmx2, 2,3
     movq      m7, [r1+7]
     pxor      m0, m0
     movq      m6, [r1+16]  ;V prediction
@@ -479,14 +479,16 @@ cglobal intra_sad_x3_8x8_mmx2, 3,3
     psadbw    m0, m7
     psadbw    m1, m6
     paddw     m0, m1
-    PIC_BEGIN
+    PIC_BEGIN r2, 0 ; r2 not used/loaded yet, don't save
+    CHECK_REG_COLLISION "rpic","r2mp"
     paddw     m0, [pic(pw_8)]
     PIC_END
+    movifnidn r2, r2mp ; load r2 from arg[2]
     psrlw     m0, 4
     punpcklbw m0, m0
     pshufw    m0, m0, q0000 ;DC prediction
     punpckhbw m7, m7
-    INTRA_SAD_HVDC_ITER 0, q3333 ; r0
+    INTRA_SAD_HVDC_ITER 0, q3333 ; r0, m0..7
     INTRA_SAD_HVDC_ITER 1, q2222
     INTRA_SAD_HVDC_ITER 2, q1111
     INTRA_SAD_HVDC_ITER 3, q0000
@@ -505,7 +507,7 @@ cglobal intra_sad_x3_8x8_mmx2, 3,3
 ; void intra_sad_x3_8x8c( uint8_t *fenc, uint8_t *fdec, int res[3] );
 ;-----------------------------------------------------------------------------
 
-%macro INTRA_SAD_HV_ITER 1 ; r0, r1
+%macro INTRA_SAD_HV_ITER 1 ; r0,1; m0..7*
 %if cpuflag(ssse3)
     movd        m1, [r1 + FDEC_STRIDE*(%1-4) - 4]
     movd        m3, [r1 + FDEC_STRIDE*(%1-3) - 4]
@@ -536,11 +538,11 @@ cglobal intra_sad_x3_8x8c, 3,3
     movq        m6, [r1 - FDEC_STRIDE]
     add         r1, FDEC_STRIDE*4
 %if cpuflag(ssse3)
-    PIC_BEGIN
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3 ; r3,4,etc not used, enclose 2x PICs in one big block
     movq        m7, [pic(pb_3)]
-    PIC_END
 %endif
-    INTRA_SAD_HV_ITER 0
+    INTRA_SAD_HV_ITER 0 ; r0,1; m0..7*
     INTRA_SAD_HV_ITER 2
     INTRA_SAD_HV_ITER 4
     INTRA_SAD_HV_ITER 6
@@ -577,9 +579,9 @@ cglobal intra_sad_x3_8x8c, 3,3
     pavgw       m0, m7 ; s0+s2, s1, s3, s1+s3
 %if cpuflag(ssse3)
     movq2dq   xmm0, m0
-    PIC_BEGIN
     pshufb    xmm0, [pic(pb_shuf8x8c)]
     PIC_END
+    %undef rpicsave ; no more PIC in this function
     movq      xmm1, [r0+FENC_STRIDE*0]
     movq      xmm2, [r0+FENC_STRIDE*1]
     movq      xmm3, [r0+FENC_STRIDE*2]
@@ -637,7 +639,7 @@ INIT_MMX ssse3
 INTRA_SAD_8x8C
 
 INIT_YMM avx2
-cglobal intra_sad_x3_8x8c, 3,3,7
+cglobal intra_sad_x3_8x8c, 2,3,7
     vpbroadcastq m2, [r1 - FDEC_STRIDE]         ; V pred
     add          r1, FDEC_STRIDE*4-1
     pxor        xm5, xm5
@@ -652,7 +654,8 @@ cglobal intra_sad_x3_8x8c, 3,3,7
     pinsrb      xm1, [r1 + FDEC_STRIDE* 2], 2
     punpcklqdq  xm0, xm1                        ; H0 _ H1 _
     vinserti128  m3, m3, xm0, 1                 ; V0 V1 H0 H1
-    PIC_BEGIN
+    PIC_BEGIN r2, 0 ; r2 not used/loaded yet, don't save
+    CHECK_REG_COLLISION "rpic","r2mp"
     pshufb      xm0, [pic(hpred_shuf)]          ; H00224466 H11335577
     psadbw       m3, m5                         ; s0 s1 s2 s3
     vpermq       m4, m3, q3312                  ; s2 s1 s3 s3
@@ -662,6 +665,7 @@ cglobal intra_sad_x3_8x8c, 3,3,7
     pavgw        m3, m5                         ; s0+s2 s1 s3 s1+s3
     pshufb       m3, [pic(pb_shuf8x8c2)]        ; DC0 _ DC1 _
     PIC_END
+    movifnidn    r2, r2mp ; load r2 from arg[2]
     vpblendd     m3, m3, m2, 11001100b          ; DC0 V DC1 V
     vinserti128  m1, m3, xm3, 1                 ; DC0 V DC0 V
     vperm2i128   m6, m3, m3, q0101              ; DC1 V DC1 V
@@ -705,7 +709,7 @@ cglobal intra_sad_x3_8x8c, 3,3,7
 ;xmm7: DC prediction    xmm6: H prediction  xmm5: V prediction
 ;xmm4: DC pred score    xmm3: H pred score  xmm2: V pred score
 %macro INTRA_SAD16 0
-cglobal intra_sad_x3_16x16, 3,5,8
+cglobal intra_sad_x3_16x16, 3-cpuflag(ssse3),5,8
     pxor    mm0, mm0
     pxor    mm1, mm1
     psadbw  mm0, [r1-FDEC_STRIDE+0]
@@ -713,9 +717,11 @@ cglobal intra_sad_x3_16x16, 3,5,8
     paddw   mm0, mm1
     movd    r3d, mm0
 %if cpuflag(ssse3)
-    PIC_BEGIN
-    mova  m1, [pic(pb_3)]
+    PIC_BEGIN r2, 0 ; r2 not used/loaded yet, don't save
+    CHECK_REG_COLLISION "rpic","r2mp"
+    mova     m1, [pic(pb_3)]
     PIC_END
+    movifnidn r2, r2mp ; load r2 from arg[2]
 %endif
 %assign x 0
 %rep 16
