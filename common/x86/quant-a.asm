@@ -2299,6 +2299,7 @@ cglobal coeff_level_run%1, 2,4+(%1/9)
 ; forwarding issues, but it's still enormously faster.
     %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","eax"
 %if %1 > 8
     movzx   eax, byte [pic(popcnt_table)+r4]
     movzx   r3d, byte [pic(popcnt_table)+r2]
