@@ -201,6 +201,7 @@ cglobal hpel_filter_v, 5,6,11
     lea        r5, [r1+r3]
     sub        r1, r3
     sub        r1, r3
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r6
 %if num_mmregs > 8
     mova       m8, [pic(pad10)]
@@ -260,7 +261,8 @@ cglobal hpel_filter_c, 3,3,10
     add        r0, r2
     add        r1, r2
     neg        r2
-    PIC_BEGIN
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
     mova       m0, [pic(tap1)]
     mova       m7, [pic(tap3)]
 %if num_mmregs > 8
@@ -306,13 +308,14 @@ cglobal hpel_filter_c, 3,3,10
 ;-----------------------------------------------------------------------------
 ; void hpel_filter_h( uint16_t *dst, uint16_t *src, intptr_t width );
 ;-----------------------------------------------------------------------------
-cglobal hpel_filter_h, 3,4,8
+cglobal hpel_filter_h, 3,3,8
     %define src r1+r2
     add        r2, r2
     add        r0, r2
     add        r1, r2
     neg        r2
-    PIC_BEGIN
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
     mova       m0, [pic(pw_pixel_max)]
 .loop:
     movu       m1, [src-4]
@@ -1639,8 +1642,11 @@ cglobal plane_copy_deinterleave_v210, 7,7,7
     add          r0, r6
     add          r2, r6
     neg          r6
-    mov         src, r4
+%ifnidn src,r4m
+    mov         src, r4 ; r4 unchanged, why save back to r4m?
+%endif
     mov       org_w, r6
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN
 %if cpuflag(avx512)
     vpbroadcastd m2, [pic(v210_mask)]
