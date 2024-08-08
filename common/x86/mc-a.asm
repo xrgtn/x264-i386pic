@@ -645,7 +645,7 @@ WEIGHTER 20
     mov%7      [%4], m1
 %endmacro
 
-%macro OFFSET_TWO_ROW 4 ; r1,r3, m0..3
+%macro OFFSET_TWO_ROW 4 ; r1,3; m0..3
 %assign x 0
 %rep %3
 %if (%3*SIZEOF_PIXEL-x) >= mmsize
@@ -671,10 +671,10 @@ WEIGHTER 20
 %macro OFFSET 2
 cglobal mc_offset%2_w%1, 6,6
     FIX_STRIDES r1, r3
-    mova m2, [r4]
+    mova m2, [r4] ; load weight into m2
 %if HIGH_BIT_DEPTH
 %ifidn %2,add
-    PIC_BEGIN
+    PIC_BEGIN r4, 0 ; r4 not used anymore after loading weight
     mova m3, [pic(pw_pixel_max)]
     PIC_END
 %endif
