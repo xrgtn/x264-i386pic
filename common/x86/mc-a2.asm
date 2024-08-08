@@ -1642,8 +1642,8 @@ cglobal plane_copy_deinterleave_v210, 7,7,7
     add          r0, r6
     add          r2, r6
     neg          r6
-%ifnidn src,r4m
-    mov         src, r4 ; r4 unchanged, why save back to r4m?
+%ifnidn src,r4m ; don't save r4 back to r4m -- r4's not changed since prologue
+    mov         src, r4
 %endif
     mov       org_w, r6
     %define rpicsave ; safe to push/pop rpic
