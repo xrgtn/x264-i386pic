@@ -994,7 +994,7 @@ ADD_NxN_IDCT add16x16_idct_avx2, add8x8_idct_avx2, 128, 8, 0, 0
 ;-----------------------------------------------------------------------------
 ; void add8x8_idct_dc( pixel *p_dst, dctcoef *dct2x2 )
 ;-----------------------------------------------------------------------------
-%macro ADD_DC 2
+%macro ADD_DC 2 ; in:[%1+],%2; m5,6; out:m0..2,[%1+],%2
     mova    m0, [%1+FDEC_STRIDEB*0] ; 8pixels
     mova    m1, [%1+FDEC_STRIDEB*1]
     mova    m2, [%1+FDEC_STRIDEB*2]
@@ -1029,14 +1029,16 @@ cglobal add8x8_idct_dc, 2,2,7
     ADD_DC r0+FDEC_STRIDEB*4, m3
     RET
 
-cglobal add16x16_idct_dc, 2,3,8
-    mov         r2, 4
+cglobal add16x16_idct_dc, 2,2,8
     PIC_BEGIN
     mova        m6, [pic(pw_pixel_max)]
     mova        m7, [pic(pd_32)]
     PIC_END
     pxor        m5, m5
-.loop:
+    %assign %%i 4
+    add         r0, 2*FDEC_STRIDEB ; for 8bit offsets, see description below.
+%rep %%i
+    %assign %%i %%i-1
     mova        m3, [r1]
     paddd       m3, m7
     psrad       m3, 6         ; dc0   0 dc1   0 dc2   0 dc3   0
@@ -1044,12 +1046,23 @@ cglobal add16x16_idct_dc, 2,3,8
     pshufhw     m3, m3, q2200 ;   _   _   _   _ dc2 dc2 dc3 dc3
     pshufd      m4, m4, q1100 ; dc0 dc0 dc0 dc0 dc1 dc1 dc1 dc1
     pshufd      m3, m3, q3322 ; dc2 dc2 dc2 dc2 dc3 dc3 dc3 dc3
-    ADD_DC r0+FDEC_STRIDEB*0, m4
-    ADD_DC r0+SIZEOF_PIXEL*8, m3
+    ; `ADD_DC r0+FDEC_STRIDEB*0, m4' and
+    ; `ADD_DC r0+SIZEOF_PIXEL*8, m3'
+    ; produced following offsets for r0-based addressing:
+    ;     [r0], [r0+0x40], [r0+0x00000080], [r0+0x000000c0]
+    ;     [r0+0x10], [r0+0x50], [r0+0x00000090], [r0+0x000000d0]
+    ; `ADD_DC r0-FDEC_STRIDEB*2, m4' and
+    ; `ADD_DC r0-FDEC_STRIDEB*2+SIZEOF_PIXEL*8, m3'
+    ; produce only 8bit offsets (r0-based):
+    ;     [r0-0x80], [r0-0x40], [r0], [r0+0x40]
+    ;     [r0-0x70], [r0-0x30], [r0+0x10], [r0+0x50].
+    ADD_DC r0-FDEC_STRIDEB*2, m4 ; in:[r0+],m4; m5,6; out:m0..2,[r0+],m4
+    ADD_DC r0-FDEC_STRIDEB*2+SIZEOF_PIXEL*8, m3 ; in:[r0+],m3; m5,6; out:m0..2,[r0+],m3
+    %if %%i
     add         r1, 16
     add         r0, 4*FDEC_STRIDEB
-    dec         r2
-    jg .loop
+    %endif
+%endrep
     RET
 %endmacro ; ADD_IDCT_DC
 
@@ -1059,7 +1072,7 @@ INIT_XMM avx
 ADD_IDCT_DC
 
 %else ;!HIGH_BIT_DEPTH
-%macro ADD_DC 3
+%macro ADD_DC 3 ; in:[%3+],%1,%2; out:m4..6,%1,[%3+]
     mova    m4, [%3+FDEC_STRIDE*0]
     mova    m5, [%3+FDEC_STRIDE*1]
     mova    m6, [%3+FDEC_STRIDE*2]
@@ -1140,11 +1153,12 @@ cglobal add8x8_idct_dc, 2,2
     RET
 
 INIT_MMX mmx2
-cglobal add16x16_idct_dc, 2,3
-    mov       r2, 4
-    %define rpicsave ; safe to push/pop rpic
+cglobal add16x16_idct_dc, 2,2
     PIC_BEGIN
-.loop:
+    %push ; not in a macro, use macro context to have "local" %$i variable
+    %assign %$i 4
+%rep %$i
+    %assign %$i %$i-1
     mova      m0, [r1]
     pxor      m1, m1
     paddw     m0, [pic(pw_32)]
@@ -1158,26 +1172,27 @@ cglobal add16x16_idct_dc, 2,3
     pshufw    m3, m1, q3322
     punpcklbw m0, m0
     punpcklbw m1, m1
-    ADD_DC    m0, m1, r0
-    ADD_DC    m2, m3, r0+8
+    ADD_DC    m0, m1, r0   ; in:[r0+],m0,1; out:m0,4..6,[r0+]
+    ADD_DC    m2, m3, r0+8 ; in:[r0+],m2,3; out:m2,4..6,[r0+]
+    %if %$i
     add       r1, 8
     add       r0, FDEC_STRIDE*4
-    dec       r2
-    jg .loop
+    %endif
+%endrep
+    %pop
     PIC_END
     RET
 
 INIT_XMM sse2
 cglobal add16x16_idct_dc, 2,2,8
-    PIC_BEGIN r2, 0
-    call .loop
-    add       r0, FDEC_STRIDE*4
-    TAIL_CALL .loop, 0
-.loop:
-    add       r0, FDEC_STRIDE*4
+    PIC_BEGIN
+    %push
+    %assign %$i 2
+    add       r0, FDEC_STRIDE*4 ; for 8bit offsets in ADD_DC
+%rep %$i
+    %assign %$i %$i-1
     movq      m0, [r1+0]
     movq      m2, [r1+8]
-    add       r1, 16
     punpcklwd m0, m0
     punpcklwd m2, m2
     pxor      m3, m3
@@ -1195,19 +1210,22 @@ cglobal add16x16_idct_dc, 2,2,8
     punpcklbw m2, m2
     ADD_DC    m0, m1, r0+FDEC_STRIDE*-4
     ADD_DC    m2, m3, r0
-    ret
+    %if %$i
+    add       r0, FDEC_STRIDE*8
+    add       r1, 16
+    %endif
+%endrep
     PIC_END
+    RET
 
 %macro ADD16x16 0
 cglobal add16x16_idct_dc, 2,2,8
     PIC_BEGIN r2, 0
-    call .loop
+    %assign %%i 2
     add      r0, FDEC_STRIDE*4
-    TAIL_CALL .loop, 0
-.loop:
-    add      r0, FDEC_STRIDE*4
+%rep %%i
+    %assign %%i %%i-1
     mova     m0, [r1]
-    add      r1, 16
     pxor     m1, m1
     pmulhrsw m0, [pic(pw_512)]
     psubw    m1, m0
@@ -1221,8 +1239,13 @@ cglobal add16x16_idct_dc, 2,2,8
     pshufb   m1, m5
     ADD_DC   m0, m1, r0+FDEC_STRIDE*-4
     ADD_DC   m2, m3, r0
-    ret
+    %if %%i
+    add      r1, 16
+    add      r0, FDEC_STRIDE*8
+    %endif
+%endrep
     PIC_END
+    RET
 %endmacro ; ADD16x16
 
 INIT_XMM ssse3
@@ -1250,14 +1273,12 @@ cglobal add16x16_idct_dc, 2,3,6
     add      r0, FDEC_STRIDE*4
     mova     m0, [r1]
     pxor     m1, m1
-    %define rpicsave ; safe to push/pop rpic
-    PIC_BEGIN
+    PIC_BEGIN r2, 0 ; r2 not loaded/used until `lea r2' 12 lines down
     pmulhrsw m0, [pic(pw_512)]
     psubw    m1, m0
     mova     m4, [pic(pb_unpackbd1)]
     mova     m5, [pic(pb_unpackbd2)]
     PIC_END
-    %undef rpicsave ; no more PIC in this function
     packuswb m0, m0
     packuswb m1, m1
     pshufb   m2, m0, m4      ; row0, row2
@@ -1398,7 +1419,7 @@ SUB8x16_DCT_DC
 
 %endif ; !HIGH_BIT_DEPTH
 
-%macro DCTDC_4ROW_SSE2 2
+%macro DCTDC_4ROW_SSE2 2 ; in:[r1,2+]; out:%1,m0
     mova       %1, [r1+FENC_STRIDEB*%2]
     mova       m0, [r2+FDEC_STRIDEB*%2]
 %assign Y (%2+1)
@@ -1414,12 +1435,17 @@ SUB8x16_DCT_DC
 
 %if HIGH_BIT_DEPTH
 %macro SUB8x8_DCT_DC_10 0
-cglobal sub8x8_dct_dc, 3,3,3
-    DCTDC_4ROW_SSE2 m1, 0
-    DCTDC_4ROW_SSE2 m2, 4
-    PIC_BEGIN
+cglobal sub8x8_dct_dc, 0,3,3
+    ; delay loading r0 until after PIC block
+    movifnidn  r1, r1mp
+    movifnidn  r2, r2mp
+    DCTDC_4ROW_SSE2 m1, 0 ; in:[r1,2+]; out:m0,1
+    DCTDC_4ROW_SSE2 m2, 4 ; in:[r1,2+]; out:m0,2
+    PIC_BEGIN r0, 0
+    CHECK_REG_COLLISION "rpic","r0mp" ; guard against r0==r0mp on x86_64
     mova       m0, [pic(pw_ppmmmmpp)]
     PIC_END
+    movifnidn  r0, r0mp
     pmaddwd    m1, m0
     pmaddwd    m2, m0
     pshufd     m0, m1, q2200      ; -1 -1 +0 +0
@@ -1435,14 +1461,19 @@ INIT_XMM sse2
 SUB8x8_DCT_DC_10
 
 %macro SUB8x16_DCT_DC_10 0
-cglobal sub8x16_dct_dc, 3,3,6
-    DCTDC_4ROW_SSE2 m1, 0
-    DCTDC_4ROW_SSE2 m2, 4
-    DCTDC_4ROW_SSE2 m3, 8
-    DCTDC_4ROW_SSE2 m4, 12
-    PIC_BEGIN
+cglobal sub8x16_dct_dc, 0,3,6
+    ; delay loading r0 until after PIC block
+    movifnidn  r1, r1mp
+    movifnidn  r2, r2mp
+    DCTDC_4ROW_SSE2 m1, 0  ; in:[r1,2+]; out:m0,1
+    DCTDC_4ROW_SSE2 m2, 4  ; in:[r1,2+]; out:m0,2
+    DCTDC_4ROW_SSE2 m3, 8  ; in:[r1,2+]; out:m0,3
+    DCTDC_4ROW_SSE2 m4, 12 ; in:[r1,2+]; out:m0,4
+    PIC_BEGIN r0, 0
+    CHECK_REG_COLLISION "rpic","r0mp" ; guard against r0==r0mp on x86_64
     mova       m0, [pic(pw_ppmmmmpp)]
     PIC_END
+    movifnidn  r0, r0mp
     pmaddwd    m1, m0
     pmaddwd    m2, m0
     pshufd     m5, m1, q2200      ; -1 -1 +0 +0
@@ -2124,7 +2155,7 @@ INIT_MMX mmx
 ZIGZAG_8x8_CAVLC W
 %endif
 
-%macro INTERLEAVE_XMM 1
+%macro INTERLEAVE_XMM 1 ; r0,1; m0..7
     mova   m0, [r1+%1*4+ 0]
     mova   m1, [r1+%1*4+16]
     mova   m4, [r1+%1*4+32]
@@ -2149,18 +2180,20 @@ ZIGZAG_8x8_CAVLC W
 
 %if HIGH_BIT_DEPTH == 0
 %macro ZIGZAG_8x8_CAVLC 0
-cglobal zigzag_interleave_8x8_cavlc, 3,3,8
-    INTERLEAVE_XMM  0
+cglobal zigzag_interleave_8x8_cavlc, 2,3,8
+    ; r2 loading delayed until after PIC block
+    INTERLEAVE_XMM  0 ; r0,1; m0..7
     INTERLEAVE_XMM 16
     packsswb m2, m3
     pxor     m5, m5
     packsswb m2, m2
     packsswb m2, m2
     pcmpeqb  m5, m2
-    %define rpicsave ; safe to push/pop rpic
-    PIC_BEGIN
+    PIC_BEGIN r2, 0
+    CHECK_REG_COLLISION "rpic","r2mp" ; guard against r2==r2mp on x86_64
     paddb    m5, [pic(pb_1)]
     PIC_END
+    movifnidn r2, r2mp
     movd    r0d, m5
     mov  [r2+0], r0w
     shr     r0d, 16
@@ -2174,16 +2207,17 @@ INIT_XMM avx
 ZIGZAG_8x8_CAVLC
 
 INIT_YMM avx2
-cglobal zigzag_interleave_8x8_cavlc, 3,3,6
+cglobal zigzag_interleave_8x8_cavlc, 2,3,6
+    ; r2 loading delayed until after PIC block
     mova   m0, [r1+ 0]
     mova   m1, [r1+32]
     mova   m2, [r1+64]
     mova   m3, [r1+96]
-    %define rpicsave ; safe to push/pop rpic
-    PIC_BEGIN
+    PIC_BEGIN r2, 0
+    CHECK_REG_COLLISION "rpic","r2mp" ; guard against r2==r2mp on x86_64
     mova   m5, [pic(deinterleave_shufd)]
     PIC_END
-    %undef rpicsave ; no more PIC in this function
+    movifnidn r2, r2mp
     SBUTTERFLY wd, 0, 1, 4
     SBUTTERFLY wd, 2, 3, 4
     SBUTTERFLY wd, 0, 1, 4
@@ -2291,10 +2325,13 @@ cglobal zigzag_scan_8x8_field, 2,2
     mova [r0+3*64], m3
     RET
 
-cglobal zigzag_interleave_8x8_cavlc, 3,3
-    PIC_BEGIN
+cglobal zigzag_interleave_8x8_cavlc, 2,3
+    ; r2 loading delayed until after PIC block
+    PIC_BEGIN r2, 0
+    CHECK_REG_COLLISION "rpic","r2mp" ; guard against r2==r2mp on x86_64
     mova        m0, [pic(cavlc_shuf_avx512)]
     PIC_END
+    movifnidn   r2, r2mp
     mova        m1, [r1+0*64]
     mova        m2, [r1+1*64]
     mova        m3, [r1+2*64]
