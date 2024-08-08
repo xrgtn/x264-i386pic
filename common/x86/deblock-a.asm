@@ -139,7 +139,7 @@ cextern pb_unpackbd1
     paddw       %1, %2
 %endmacro
 
-%macro LUMA_DEBLOCK_ONE 3 ; bm, tcm
+%macro LUMA_DEBLOCK_ONE 3 ; bm, tcm, m1,2,4..7
     DIFF_LT     m5, %1, bm, m4, m6
     pxor        m6, m6
     mova        %3, m4
@@ -150,7 +150,7 @@ cextern pb_unpackbd1
     LUMA_Q1 m5, %2, m1, m2, m4, m6
 %endmacro
 
-%macro LUMA_H_STORE 2
+%macro LUMA_H_STORE 2 ; in:m0..3; out:[r0,1+]
 %if mmsize == 8
     movq        [r0-4], m0
     movq        [r0+r1-4], m1
@@ -173,11 +173,14 @@ cextern pb_unpackbd1
 ; void deblock_v_luma( uint16_t *pix, intptr_t stride, int alpha, int beta, int8_t *tc0 )
 ;-----------------------------------------------------------------------------
 cglobal deblock_v_luma, 5,5,8,0-5*mmsize
+    PIC_ALLOC
     %define tcm [rsp]
     %define ms1 [rsp+mmsize]
     %define ms2 [rsp+mmsize*2]
     %define am  [rsp+mmsize*3]
     %define bm  [rsp+mmsize*4]
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","tcm","ms1","ms2","am","bm"
     add         r1, r1
     LOAD_AB     m4, m5, r2d, r3d
     mov         r3, 32/mmsize
@@ -198,7 +201,7 @@ cglobal deblock_v_luma, 5,5,8,0-5*mmsize
     mova       tcm, m6
 
     mova        m5, [r0]
-    LUMA_DEBLOCK_ONE m1, m0, ms1
+    LUMA_DEBLOCK_ONE m1, m0, ms1 ; bm, tcm
     mova   [r0+r1], m5
 
     mova        m5, [r2+r1*2]
@@ -212,7 +215,7 @@ cglobal deblock_v_luma, 5,5,8,0-5*mmsize
     pandn       m5, m7
     psubw       m6, ms2
     pand        m5, m6
-    DEBLOCK_P0_Q0 m1, m2, m0, m3, m5, m7, m6
+    DEBLOCK_P0_Q0 m1, m2, m0, m3, m5, m7, m6 ; PIC
     mova [r0+r1*2], m1
     mova      [r2], m2
 
@@ -221,9 +224,12 @@ cglobal deblock_v_luma, 5,5,8,0-5*mmsize
     add         r4, mmsize/8
     dec         r3
     jg .loop
+    PIC_END
+    PIC_FREE
     RET
 
 cglobal deblock_h_luma, 5,6,8,0-7*mmsize
+    PIC_ALLOC
     %define tcm [rsp]
     %define ms1 [rsp+mmsize]
     %define ms2 [rsp+mmsize*2]
@@ -231,6 +237,8 @@ cglobal deblock_h_luma, 5,6,8,0-7*mmsize
     %define p2m [rsp+mmsize*4]
     %define am  [rsp+mmsize*5]
     %define bm  [rsp+mmsize*6]
+    PIC_BEGIN r6
+    CHECK_REG_COLLISION "rpic","tcm","ms1","ms2","p1m","p2m","am","bm"
     add         r1, r1
     LOAD_AB     m4, m5, r2d, r3d
     mov         r3, r1
@@ -307,6 +315,8 @@ cglobal deblock_h_luma, 5,6,8,0-7*mmsize
     lea         r2, [r2+r1*(mmsize/2)]
     dec         r5
     jg .loop
+    PIC_END
+    PIC_FREE
     RET
 %endmacro
 
@@ -427,7 +437,7 @@ INIT_XMM sse2
 DEBLOCK_LUMA_64
 INIT_XMM avx
 DEBLOCK_LUMA_64
-%endif
+%endif ; ARCH_X86_64
 
 %macro SWAPMOVA 2
 %ifnum sizeof%1
@@ -440,7 +450,7 @@ DEBLOCK_LUMA_64
 ; in: t0-t2: tmp registers
 ;     %1=p0 %2=p1 %3=p2 %4=p3 %5=q0 %6=q1 %7=mask0
 ;     %8=mask1p %9=2 %10=p0' %11=p1' %12=p2'
-%macro LUMA_INTRA_P012 12 ; p0..p3 in memory
+%macro LUMA_INTRA_P012 12 ; p0..p3 in memory ; t0..2
 %if ARCH_X86_64
     paddw     t0, %3, %2
     mova      t2, %4
@@ -488,7 +498,7 @@ DEBLOCK_LUMA_64
     SWAPMOVA %12, t2
 %endmacro
 
-%macro LUMA_INTRA_INIT 1
+%macro LUMA_INTRA_INIT 1 ; r1, t0..3==m4..7, t4..(4+N-1)==[rsp+0..(N-1)*mmsize]
     %define t0 m4
     %define t1 m5
     %define t2 m6
@@ -502,7 +512,7 @@ DEBLOCK_LUMA_64
 %endmacro
 
 ; in: %1-%3=tmp, %4=p2, %5=q2
-%macro LUMA_INTRA_INTER 5 ; PIC
+%macro LUMA_INTRA_INTER 5 ; r2,3; m0..7, PIC
     LOAD_AB t0, t1, r2d, r3d
     mova    %1, t0
     LOAD_MASK m0, m1, m2, m3, %1, t1, t0, t2, t3
@@ -530,7 +540,7 @@ DEBLOCK_LUMA_64
     mova    %1, t2        ; mask1p
 %endmacro
 
-%macro LUMA_H_INTRA_LOAD 0
+%macro LUMA_H_INTRA_LOAD 0 ; in:[r0,1,4,5+]; out:m0..7*, t0..2*3*..7
 %if mmsize == 8
     movu    t0, [r0-8]
     movu    t1, [r0+r1-8]
@@ -565,7 +575,7 @@ DEBLOCK_LUMA_64
 %endmacro
 
 ; in: %1=q3 %2=q2' %3=q1' %4=q0' %5=p0' %6=p1' %7=p2' %8=p3 %9=tmp
-%macro LUMA_H_INTRA_STORE 9
+%macro LUMA_H_INTRA_STORE 9 ; in:m%1..%8*,%9; out:[r0,1,4,5+]
 %if mmsize == 8
     TRANSPOSE4x4W %1, %2, %3, %4, %9
     movq       [r0-8], m%1
@@ -728,54 +738,64 @@ DEBLOCK_LUMA_INTRA_64
 ;-----------------------------------------------------------------------------
 ; void deblock_v_luma_intra( uint16_t *pix, intptr_t stride, int alpha, int beta )
 ;-----------------------------------------------------------------------------
-cglobal deblock_v_luma_intra, 4,7,8,0-3*mmsize-%cond(PIC==2,mmsize,0)
-    LUMA_INTRA_INIT 3
+cglobal deblock_v_luma_intra, 4,7,8,0-3*mmsize
+    PIC_ALLOC
+    ; Cache rpicl so that PIC block inside the .loop: below doesn't do
+    ; `call+pop' init each time, but just loads label addr from stack.
+    PIC_BEGIN r6, 0 ; r6 pushed by PROLOGUE, but not loaded/initialized yet,
+    PIC_END         ; don't save.
+    LUMA_INTRA_INIT 3 ; r1, t0..3==m4..7, t4..6==[rsp+0..2*mmsize]
     lea     r4, [r1*4]
     lea     r5, [r1*3]
     neg     r4
     add     r4, r0
     mov     r6, 32/mmsize
-.loop:
+.loop: ; TODO: unroll the loop? (519 bytes, 149 ops --i386_10_mmx2) x4 max
     mova    m0, [r4+r1*2] ; p1
     mova    m1, [r4+r5]   ; p0
     mova    m2, [r0]      ; q0
     mova    m3, [r0+r1]   ; q1
-    %define rpicsave [rsp+3*(mmsize)]
-    PIC_BEGIN r6 ; r6 != rstk
-    LUMA_INTRA_INTER t4, t5, t6, [r4+r1], [r0+r1*2] ; also uses r2d, r3d
-    LUMA_INTRA_P012 m1, m0, t3, [r4], m2, m3, t5, t4, [pic(pw_2)], [r4+r5], [r4+2*r1], [r4+r1]
+    PIC_BEGIN r6
+    LUMA_INTRA_INTER t4, t5, t6, [r4+r1], [r0+r1*2] ; r0..4, m0..7, PIC
+    LUMA_INTRA_P012 m1, m0, t3, [r4], m2, m3, t5, t4, [pic(pw_2)], [r4+r5], [r4+2*r1], [r4+r1] ; PIC:%9 x2
     mova    t3, [r0+r1*2] ; q2
-    LUMA_INTRA_P012 m2, m3, t3, [r0+r5], m1, m0, t5, t6, [pic(pw_2)], [r0], [r0+r1], [r0+2*r1]
+    LUMA_INTRA_P012 m2, m3, t3, [r0+r5], m1, m0, t5, t6, [pic(pw_2)], [r0], [r0+r1], [r0+2*r1] ; PIC:%9 x2
     PIC_END
     add     r0, mmsize
     add     r4, mmsize
     dec     r6
     jg .loop
+    PIC_FREE
     RET
 
 ;-----------------------------------------------------------------------------
 ; void deblock_h_luma_intra( uint16_t *pix, intptr_t stride, int alpha, int beta )
 ;-----------------------------------------------------------------------------
-cglobal deblock_h_luma_intra, 4,7,8,0-8*mmsize-%cond(PIC==2,mmsize,0)
-    LUMA_INTRA_INIT 8
+cglobal deblock_h_luma_intra, 4,7,8,0-8*mmsize
+    PIC_ALLOC
+    LUMA_INTRA_INIT 8 ; r1, t0..3==m4..7, t4..11==[rsp+0..7*mmsize]
 %if mmsize == 8
+    ; When mmsize==8, r6 is not used but saved by PROLOGUE anyway.
+    ; Enclose whole function in no-save PIC_BEGIN/END block then:
+    PIC_BEGIN r6, 0
     lea     r4, [r1*3]
     mov     r5, 32/mmsize
 %else
+    PIC_BEGIN r6, 0 ; cache rpicl, don't save r6 (not used yet)
+    PIC_END
     lea     r4, [r1*4]
     lea     r5, [r1*3] ; 3*stride
     add     r4, r0     ; pix+4*stride
-    mov     r6, 32/mmsize
+    mov     r6, 32/mmsize ; now r6 is used for loop counter.
 %endif
-.loop:
-    LUMA_H_INTRA_LOAD
-    %define picsave [rsp+8*(mmsize)]
-    PIC_BEGIN r6 ; r6 != rstk
-    LUMA_INTRA_INTER t8, t9, t10, t5, t6 ; uses r2d, r3d ; PIC
+.loop: ; TODO: unroll the loop? (773 bytes, 216 ops --i386_10_mmx2) x4 max
+    LUMA_H_INTRA_LOAD ; in:[r0,1,4,5+]; out:m0..7*, t0..2*3*..7
+    PIC_BEGIN r6
+    LUMA_INTRA_INTER t8, t9, t10, t5, t6 ; r2,3; m0..7, [rsp+1,2,4..6*mmsize], PIC
 
-    LUMA_INTRA_P012 m1, m0, t3, t4, m2, m3, t9, t8, [pic(pw_2)], t8, t5, t11
+    LUMA_INTRA_P012 m1, m0, t3, t4, m2, m3, t9, t8, [pic(pw_2)], t8, t5, t11 ; PIC:%9 x2
     mova    t3, t6     ; q2
-    LUMA_INTRA_P012 m2, m3, t3, t7, m1, m0, t9, t10, [pic(pw_2)], m4, t6, m5
+    LUMA_INTRA_P012 m2, m3, t3, t7, m1, m0, t9, t10, [pic(pw_2)], m4, t6, m5 ; PIC:%9 x2
     PIC_END
 
     mova    m2, t4
@@ -784,7 +804,7 @@ cglobal deblock_h_luma_intra, 4,7,8,0-8*mmsize-%cond(PIC==2,mmsize,0)
     mova    m3, t8
     mova    m6, t6
 
-    LUMA_H_INTRA_STORE 2, 0, 1, 3, 4, 6, 5, t7, 7
+    LUMA_H_INTRA_STORE 2, 0, 1, 3, 4, 6, 5, t7, 7 ; in:m0..7, t7; out:[r0,1,4,5+]
 
     lea     r0, [r0+r1*(mmsize/2)]
 %if mmsize == 8
@@ -794,6 +814,10 @@ cglobal deblock_h_luma_intra, 4,7,8,0-8*mmsize-%cond(PIC==2,mmsize,0)
     dec     r6
 %endif
     jg .loop
+%if mmsize == 8
+    PIC_END
+%endif
+    PIC_FREE
     RET
 %endmacro
 
@@ -1145,7 +1169,7 @@ DEBLOCK_LUMA_INTRA
 ; in: m0=p1 m1=p0 m2=q0 m3=q1 %1=alpha %2=beta
 ; out: m5=beta-1, m7=mask, %3=alpha-1
 ; clobbers: m4,m6
-%macro LOAD_MASK 2-3 ; PIC
+%macro LOAD_MASK 2-3 ; in:%1,2; m0..3; out:m4..7, %3*; PIC
 %if cpuflag(ssse3)
     movd     m4, %1
     movd     m5, %2
@@ -1181,7 +1205,7 @@ DEBLOCK_LUMA_INTRA
 ; in: m0=p1 m1=p0 m2=q0 m3=q1 m7=(tc&mask)
 ; out: m1=p0' m2=q0'
 ; clobbers: m0,3-6
-%macro DEBLOCK_P0_Q0 0 ; PIC x4
+%macro DEBLOCK_P0_Q0 0 ; m0..7, PIC x4
     pxor    m5, m1, m2   ; p0^q0
     PIC_BEGIN
     pand    m5, [pic(pb_1)] ; (p0^q0)&1
@@ -1356,7 +1380,8 @@ DEBLOCK_LUMA
 ;-----------------------------------------------------------------------------
 ; void deblock_v8_luma( uint8_t *pix, intptr_t stride, int alpha, int beta, int8_t *tc0 )
 ;-----------------------------------------------------------------------------
-cglobal deblock_%1_luma, 5,5,8,2*(%2)+%cond(PIC==2,(%2),0)
+cglobal deblock_%1_luma, 5,5,8,2*(%2)
+    PIC_ALLOC
     lea     r4, [r1*3]
     neg     r4
     add     r4, r0 ; pix-3*stride
@@ -1365,12 +1390,21 @@ cglobal deblock_%1_luma, 5,5,8,2*(%2)+%cond(PIC==2,(%2),0)
     mova    m1, [r4+2*r1] ; p0
     mova    m2, [r0]      ; q0
     mova    m3, [r0+r1]   ; q1
-    %define rpicsave [esp+2*(%2)]
+
     PIC_BEGIN r5
-    LOAD_MASK r2d, r3d ; PIC
+    CHECK_REG_COLLISION "rpic","r4mp",[esp+%2],[esp]
+    LOAD_MASK r2d, r3d ; in:%1,2; m0..3; out:m4..7, %3*; PIC
 
     mov     r3, r4mp
-    movd    m4, [r3] ; tc0
+    movd    m4, [r3] ; tc0 ; after this point r2&r3 are not used
+    ; TODO: free r3 and r4 registers and
+    ; change `cglobal deblock_%1_luma, 5,5,8,2*(%2)'
+    ;     to `cglobal deblock_%1_luma, 1,3,8,2*(%2)'
+    ; 1. load mask via r1+r2
+    ; 2. load tc0 into via r2 m4
+    ; 3. load stride to r1
+    ; 4. load pix-3*stride into r2
+    ; 5. init PIC:r3,1,,0 and go
 %if cpuflag(avx)
     pshufb   m4, [pic(pb_unpackbd1)]
     mova   [esp+%2], m4 ; tc
@@ -1407,6 +1441,7 @@ cglobal deblock_%1_luma, 5,5,8,2*(%2)+%cond(PIC==2,(%2),0)
     PIC_END
     mova    [r4+2*r1], m1
     mova    [r0], m2
+    PIC_FREE
     RET
 
 ;-----------------------------------------------------------------------------
@@ -1438,6 +1473,8 @@ cglobal deblock_h_luma, 1,5,8,0x60+12
     PUSH   dword r2m
     PUSH   dword 16
     PUSH   dword r0
+    ; TODO: write optimized version: deblock_%1_luma.skip_prologue with args
+    ; passed in regs?
     call   deblock_%1_luma
 %ifidn %1, v8
     add    dword [esp   ], 8 ; pix_tmp+0x38
@@ -1494,7 +1531,9 @@ DEBLOCK_LUMA v, 16
 
 
 
-%macro LUMA_INTRA_P012 4 ; p0..p3 in memory ; PIC
+%macro LUMA_INTRA_P012 4 ; p0..p3 in memory ; t0..5, p0..2, q0..2, mask0,1p; mpb_0,1; PIC
+    CHECK_REG_COLLISION "rpic",%{1:-1},"t0","t1","t2","t3","t4","t5",\
+        "p0","p1","p2","q0","q1","q2","mask0","mask1p"
 %if ARCH_X86_64
     pavgb t0, p2, p1
     pavgb t1, p0, q0
@@ -1520,6 +1559,7 @@ DEBLOCK_LUMA v, 16
     mova  t4, t2
     psrlw t2, 1
     PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","t0","t2"
     pavgb t2, mpb_0 ; mpb_0: m14 or [pic(pb_0)]
     pxor  t2, t0    ; t2 is *mm (dest in pavgb op), t0 is *mm (same reason)
     pand  t2, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
@@ -1538,6 +1578,7 @@ DEBLOCK_LUMA v, 16
     paddb t3, t3
     psubb t3, t2 ; p2+2*p1+2*p0+2*q0+q1
     PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","t2"
     pand  t2, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
     PIC_END
     psubb t1, t2
@@ -1545,6 +1586,7 @@ DEBLOCK_LUMA v, 16
     pavgb t1, t5 ; (((p2+q1)/2 + p1+1)/2 + (p0+q0+1)/2 + 1)/2
     psrlw t3, 2
     PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","t1","t3"
     pavgb t3, mpb_0 ; mpb_0: m14 or [pic(pb_0)]
     pxor  t3, t1    ; t3, t1 are *mm regs (dests in pavg op)
     pand  t3, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
@@ -1554,6 +1596,7 @@ DEBLOCK_LUMA v, 16
     pxor  t3, p0, q1
     pavgb t2, p0, q1
     PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","t3"
     pand  t3, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
     PIC_END
     psubb t2, t3
@@ -1575,6 +1618,7 @@ DEBLOCK_LUMA v, 16
     paddb t2, t4 ; 2*p3+3*p2+p1+p0+q0
     psrlw t2, 2
     PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","t1","t2"
     pavgb t2, mpb_0 ; mpb_0: m14 or [pic(pb_0)]
     pxor  t2, t1    ; t2 & t1 are *mm regs (dests in pavgb op)
     pand  t2, mpb_1 ; mpb_1: m15 or [pic(pb_1)]
@@ -1639,8 +1683,8 @@ DEBLOCK_LUMA v, 16
 ;-----------------------------------------------------------------------------
 ; void deblock_v_luma_intra( uint8_t *pix, intptr_t stride, int alpha, int beta )
 ;-----------------------------------------------------------------------------
-cglobal deblock_%1_luma_intra, 4,6,16,0-(1-ARCH_X86_64)*0x50-WIN64*0x10\
-	-%cond(PIC==2,mmsize,0)
+cglobal deblock_%1_luma_intra, 4,6,16,0-(1-ARCH_X86_64)*0x50-WIN64*0x10
+    PIC_ALLOC
     lea     r4, [r1*4]
     lea     r5, [r1*3] ; 3*stride
     neg     r4
@@ -1667,7 +1711,6 @@ cglobal deblock_%1_luma_intra, 4,6,16,0-(1-ARCH_X86_64)*0x50-WIN64*0x10\
     mova    mask1q, t4
     mova    mask1p, t2
 %else
-    %define rpicsave [esp+16*5]
     PIC_BEGIN r6
     LOAD_MASK r2d, r3d, t5 ; m5=beta-1, t5=alpha-1, m7=mask0 ; PIC
     mova    m4, t5
@@ -1686,8 +1729,11 @@ cglobal deblock_%1_luma_intra, 4,6,16,0-(1-ARCH_X86_64)*0x50-WIN64*0x10\
     LUMA_INTRA_P012 [r4+r5], [r4+2*r1], [r4+r1], [r4] ; PIC
     LUMA_INTRA_SWAP_PQ
     LUMA_INTRA_P012 [r0], [r0+r1], [r0+2*r1], [r0+r5] ; PIC
+%if ARCH_X86_64==0
     PIC_END
+%endif
 .end:
+    PIC_FREE
     REP_RET
 
 %if cpuflag(avx)
@@ -1804,7 +1850,7 @@ DEBLOCK_LUMA_INTRA v8
 
 ; out: m0-m3
 ; clobbers: m4-m7
-%macro CHROMA_H_LOAD 0-1
+%macro CHROMA_H_LOAD 0-1 ; in:[r0,1,%1+]; out:m0..4*5,6*,7
     movq        m0, [r0-8] ; p1 p1 p0 p0
     movq        m2, [r0]   ; q0 q0 q1 q1
     movq        m5, [r0+r1-8]
@@ -1832,7 +1878,7 @@ DEBLOCK_LUMA_INTRA v8
 %endif
 %endmacro
 
-%macro CHROMA_V_LOAD 1 ; r0, r1
+%macro CHROMA_V_LOAD 1 ; in:[r0,1+]; out:m0..3
     mova        m0, [r0]    ; p1
     mova        m1, [r0+r1] ; p0
     mova        m2, [%1]    ; q0
@@ -1840,7 +1886,7 @@ DEBLOCK_LUMA_INTRA v8
 %endmacro
 
 ; clobbers: m1, m2, m3
-%macro CHROMA_H_STORE 0-1 ; r0, r1
+%macro CHROMA_H_STORE 0-1 ; in:m1..3; out:[r0,1,%1+]
     SBUTTERFLY dq, 1, 2, 3
 %if mmsize == 8
     movq      [r0-4], m1
@@ -1853,7 +1899,7 @@ DEBLOCK_LUMA_INTRA v8
 %endif
 %endmacro
 
-%macro CHROMA_V_STORE 0 ; r0, r1
+%macro CHROMA_V_STORE 0 ; in:m1,2; out:[r0+1,2*r1]
     mova [r0+1*r1], m1
     mova [r0+2*r1], m2
 %endmacro
@@ -1983,19 +2029,19 @@ cglobal deblock_h_chroma_intra, 4,6,8
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma_intra_mbaff, 4,6,8
     add         r1, r1
+    %define rpicsave ; safe to push/pop rpic
 %if mmsize == 8
     mov         r4, 16/mmsize
-    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r6, 1, $$
 .loop:
 %else
     lea         r5, [r1*3]
 %endif
-    CHROMA_H_LOAD r5 ; r0, r1
+    CHROMA_H_LOAD r5 ; [r0,1,5+]
     LOAD_AB     m4, m5, r2d, r3d
     LOAD_MASK   m0, m1, m2, m3, m4, m5, m7, m6, m4
     CHROMA_DEBLOCK_P0_Q0_INTRA m1, m2, m0, m3, m7, m5, m6 ; PIC
-    CHROMA_H_STORE r5 ; r0, r1
+    CHROMA_H_STORE r5 ; [r0,1,5+]
 %if mmsize == 8
     lea         r0, [r0+r1*(mmsize/4)]
     dec         r4
