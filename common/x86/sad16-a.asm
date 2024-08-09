@@ -106,6 +106,8 @@ cglobal pixel_sad_%1x%2, 4,5-(%2&4/4)
 %if %1*%2 == 256
     HADDUW  m0, m1
 %else
+    ; nominate rax for no-save PIC, it's retval-ed later anyway
+    %define rpiclcache rax
     HADDW   m0, m1 ; PIC*
 %endif
     movd   eax, m0
@@ -175,6 +177,8 @@ cglobal pixel_sad_%1x%2, 4,5-(%2&4/4),8*(%1/mmsize)
     dec    r4d
     jg .loop
 %endif
+    ; nominate rax for no-save PIC, it's retval-ed later anyway
+    %define rpiclcache rax
     HADDW   m0, m1 ; PIC*
     movd   eax, xm0
     RET
@@ -591,7 +595,7 @@ cglobal intra_sad_x3_4x4, 3,3,7
     pshuflw   m3, m3, q1111 ; FF FF EE EE
     pshuflw   m4, m4, q1111 ; HH HH GG GG
     paddw     m5, m3, m4
-    PIC_BEGIN r3
+    PIC_BEGIN r1, 0 ; r1 is not used anymore, don't save
     paddw     m6, [pic(pw_4)]
     paddw     m6, m5
     pshufd    m5, m5, q1032
@@ -667,6 +671,7 @@ cglobal intra_sad_x3_8x8, 3,3,8
     mova        m7, m0
     paddw       m0, m6
     punpckhwd   m7, m7
+    %define rpicsave ; safe to push/pop rpic
     PIC_BEGIN r3
     HADDW       m0, m4 ; PIC*
     paddw       m0, [pic(pw_8)]
@@ -728,7 +733,7 @@ cglobal intra_sad_x3_8x8, 3,3,8
     vbroadcasti128 m6, [r1+16*SIZEOF_PIXEL] ; V prediction
     vpermq         m7, m0, q0011
     paddw         xm0, xm6
-    PIC_BEGIN r3
+    PIC_BEGIN r1, 0 ; r1 isn't used anymore, don't save
     paddw         xm0, [pic(pw_1)] ; equal to +8 after HADDW
     HADDW         xm0, xm4 ; PIC*
     psrld         xm0, 4
