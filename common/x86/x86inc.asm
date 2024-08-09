@@ -660,6 +660,11 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             ; cglobal foo_asm, 0,0,0,a,b,c,d,e in fact uses 5 registers (a:r0,
             ; b:r1 etc), it just doesn't do push/pop for them. Number of
             ; "register aliases" is indicated in n_arg_names
+            %ifnum n_arg_names
+                %assign %%narg n_arg_names
+            %else
+                %assign %%narg 0
+            %endif
             %if %%rpic_auto == -1
                 %xdefine rpic rpiclcache
                 %assign rpicsf 0
@@ -671,7 +676,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %elifndef regs_used ; unknown number of regs used
                 %xdefine rpic r5 ; edi on i386
                 %assign rpicsf 1
-            %elifndef n_arg_names
+            %elif %%narg == 0
                 %if regs_used < 3
                     %xdefine rpic r2 ; edx on i386
                     %assign rpicsf 0 ; r2 is /scratch register/
