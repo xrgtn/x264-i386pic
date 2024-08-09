@@ -1254,8 +1254,6 @@ DECLARE_REG 14, R13, 120
         %endif
     %elifnnum %4
         DEFINE_ARGS %4
-    %else
-        DEFINE_ARGS
     %endif
 %endmacro
 
@@ -1370,8 +1368,6 @@ DECLARE_REG 14, R13, 72
         %endif
     %elifnnum %4
         DEFINE_ARGS %4
-    %else
-        DEFINE_ARGS
     %endif
 %endmacro
 
@@ -1436,8 +1432,6 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
         %endif
     %elifnnum %4
         DEFINE_ARGS %4
-    %else
-        DEFINE_ARGS
     %endif
 %endmacro
 
@@ -1606,6 +1600,7 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     %assign stack_size 0        ; amount of stack space that can be freely used inside a function
     %assign stack_size_padded 0 ; total amount of allocated stack space, including space for callee-saved xmm registers on WIN64 and alignment padding
     %assign xmm_regs_used 0     ; number of XMM registers requested, used for dealing with callee-saved registers on WIN64 and vzeroupper
+    DEFINE_ARGS ; DEFINE_ARGS without params undefines previous args
     %ifnidn %3, ""
         PROLOGUE %3
     %endif
