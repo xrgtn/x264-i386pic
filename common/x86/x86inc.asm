@@ -361,19 +361,25 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %undef stack_offset ; so that the current value of stack_offset doesn't get baked in by xdefine
     %assign %%i 0
     %rep %0
-        %xdefine %1q r %+ %%i %+ q
-        %xdefine %1d r %+ %%i %+ d
-        %xdefine %1w r %+ %%i %+ w
-        %xdefine %1h r %+ %%i %+ h
-        %xdefine %1b r %+ %%i %+ b
-        %xdefine %1m r %+ %%i %+ m
-        %xdefine %1mp r %+ %%i %+ mp
-        CAT_XDEFINE arg_name, %%i, %1
+        %ifnempty %1
+            %xdefine %1q r %+ %%i %+ q
+            %xdefine %1d r %+ %%i %+ d
+            %xdefine %1w r %+ %%i %+ w
+            %xdefine %1h r %+ %%i %+ h
+            %xdefine %1b r %+ %%i %+ b
+            %xdefine %1m r %+ %%i %+ m
+            %xdefine %1mp r %+ %%i %+ mp
+            CAT_XDEFINE arg_name, %%i, %1
+        %endif
         %assign %%i %%i+1
         %rotate 1
     %endrep
     %xdefine stack_offset %%stack_offset
-    %assign n_arg_names %0
+    %if %0
+        %assign n_arg_names %0
+    %else
+        %undef n_arg_names
+    %endif
 %endmacro
 
 ; PIC macros:
@@ -1243,6 +1249,8 @@ DECLARE_REG 14, R13, 120
         %endif
     %elifnnum %4
         DEFINE_ARGS %4
+    %else
+        DEFINE_ARGS
     %endif
 %endmacro
 
@@ -1357,6 +1365,8 @@ DECLARE_REG 14, R13, 72
         %endif
     %elifnnum %4
         DEFINE_ARGS %4
+    %else
+        DEFINE_ARGS
     %endif
 %endmacro
 
@@ -1421,6 +1431,8 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
         %endif
     %elifnnum %4
         DEFINE_ARGS %4
+    %else
+        DEFINE_ARGS
     %endif
 %endmacro
 
