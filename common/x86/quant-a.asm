@@ -2056,14 +2056,25 @@ COEFF_LAST
 INIT_YMM avx2
 cglobal coeff_last64, 1,2
     pxor m2, m2
+%if HIGH_BIT_DEPTH
+    PIC_BEGIN
+%endif
     LAST_MASK_AVX2 r1d, r0+SIZEOF_DCTCOEF*32 ; PIC*[HIGH_BIT_DEPTH]
     xor r1d, -1
     jne .secondhalf
     LAST_MASK_AVX2 r1d, r0+SIZEOF_DCTCOEF* 0 ; PIC*[HIGH_BIT_DEPTH]
+%if HIGH_BIT_DEPTH
+    PIC_CONTEXT_PUSH
+    PIC_END
+%endif
     not r1d
     BSR eax, r1d, 0x1f
     RET
 .secondhalf:
+%if HIGH_BIT_DEPTH
+    PIC_CONTEXT_POP
+    PIC_END
+%endif
     BSR eax, r1d, 0x1f
     add eax, 32
     RET
