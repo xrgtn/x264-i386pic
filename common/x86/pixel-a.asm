@@ -2815,7 +2815,13 @@ cglobal intra_satd_x3_16x16, 0,5
 ;-----------------------------------------------------------------------------
 cglobal intra_satd_x3_8x8c, 0,6
     ; not really needed on x86_64, just shuts up valgrind about storing data below the stack across a function call
-    %assign %%pad 72 + (15 & -(gprsize+stack_offset+72))
+    %assign %%pad0 72
+%if HIGH_BIT_DEPTH && (!cpuflag(xop) || mmsize != 16)
+    %assign %%pad0 %%pad0+2*(gprsize)
+    %define rpiclcache [rsp+72+gprsize] ; size gprsize
+    %define rpicsave   [rsp+72]         ; size gprsize
+%endif
+    %assign %%pad %%pad0 + (15 & -(gprsize+stack_offset+%%pad0))
     SUB          rsp, %%pad
 %define  sums    rsp+48 ; size 24
 %define  dc_1d   rsp+32 ; size 16
@@ -2894,7 +2900,17 @@ cglobal intra_satd_x3_8x8c, 0,6
     movq        m7, m0
 %if HIGH_BIT_DEPTH
     psrlq       m7, 16
-    HADDW       m7, m3 ; PIC*
+    ; TODO: need different way to nominate reg for PIC than reg-as-rpiclcache
+    ; method. For the PIC* HADDW macro below we can nominate any reg except r2
+    ; (which is still used near RET), while having valid rpiclcache in
+    ; [rsp+72+gprsize]:
+%if cpuflag(xop) && mmsize == 16
+    HADDW       m7, m3
+%else
+    PIC_BEGIN r0, 0 ; r0 not used anymore
+    HADDW       m7, m3 ; PIC
+    PIC_END
+%endif
     SUM_MM_X3   m0, m1, m2, m3, m4, m5, m6, paddd
     psrld       m2, 1
     paddd       m2, m7
@@ -2907,7 +2923,7 @@ cglobal intra_satd_x3_8x8c, 0,6
     movd    [r2+0], m0 ; i8x8c_dc satd
     movd    [r2+4], m1 ; i8x8c_h satd
     movd    [r2+8], m2 ; i8x8c_v satd
-    ADD        rsp, %%pad ; free sums/dc_1d/top_1d/left_1d area
+    ADD        rsp, %%pad ; free rpicsave/sums/dc_1d/top_1d/left_1d area
     %undef   %%pad
     RET
 %endmacro ; INTRA_X3_MMX
@@ -3320,7 +3336,6 @@ cglobal intra_satd_x9_4x4, 3,4,8
     %define fenc_buf rsp         ; size 64
 
     PIC_BEGIN r4, 1, $$
-    CHECK_REG_COLLISION "rpic",eax ; retval
     CHECK_REG_COLLISION "rpic","fenc_buf","pred_buf","spill", eax;retval
     INTRA_X9_PRED intrax9b, [spill+0x20] ; r1, stack, PIC
     mova [pred_buf+0x00], m2
@@ -3854,6 +3869,7 @@ cglobal intra_sad_x9_8x8, 5,6,9
     movhps [r1+FDEC_STRIDE* 3], m3
     PIC_END
     ADD       rsp, %%pad ; free rpicsave/pred/padbase area
+    %undef  %%pad
     RET
 
 %if ARCH_X86_64
@@ -4397,6 +4413,7 @@ cglobal pixel_hadamard_ac_%1x%2, 2,4
     add  rax, rdx ; retval in edx:eax/rax(edx clobbered)
 %endif
     add  rsp, %%n16*16 + 128 + pad
+    %undef %%n
     ; If rpic was eax/edx and saved in PIC_BEGIN, it gets restored here in
     ; PIC_END instead of passing retval to caller. Thus we have
     ; CHECK_REG_COLLISION at the top of the function to check for this
@@ -5618,7 +5635,11 @@ cglobal pixel_asd8, 5,5
     jg .loop
 %if HIGH_BIT_DEPTH
     psubw    m0, m1
+    ; nominate rax for no-save PIC: it's retval'ed later anyway
+    %define  rpiclcache rax
+    %assign  rpiclcf 0
     HADDW    m0, m1 ; PIC*
+    %undef   rpiclcache
     ABSD     m1, m0
 %else
     MOVHL    m1, m0
