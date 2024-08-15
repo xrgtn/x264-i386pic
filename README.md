@@ -18,7 +18,7 @@ optimizing asm code even more.
 
 Current state of affairs is such:
 * all asm sources that generated `read-only segment has dynamic relocations`
-  errors (and `relocation in read-only section \`.text'` warnings) have been
+  errors (and `relocation in read-only section '.text'` warnings) have been
   **fixed** (converted to PIC)
 * x264 **builds** with PIC+asm just fine
 * it looks like this new x264 **works** OK: it didn't crash, encoding was 3.3
