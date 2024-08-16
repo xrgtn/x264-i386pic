@@ -1558,9 +1558,10 @@ cglobal decimate_score%1, 1,3
     add    al, byte [table + rcx]
     add    al, byte [mask_table + rdx]
 .ret:
+    BRANCH_TARGET
     PIC_CONTEXT_PUSH
     PIC_END
-    REP_RET
+    RET
     PIC_CONTEXT_POP
 .ret9:
     mov   eax, 9
