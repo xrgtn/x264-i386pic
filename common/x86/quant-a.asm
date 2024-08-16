@@ -1771,8 +1771,9 @@ cglobal decimate_score64, 1,4
 .ret9:
     mov   eax, 9
 .ret:
-    PIC_END ; this is The Final PIC_END, or so...
-    REP_RET
+    BRANCH_TARGET
+    PIC_END
+    RET
 %endif ; ARCH
 %endmacro
 
