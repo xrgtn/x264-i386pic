@@ -1857,11 +1857,11 @@ cglobal predict_8x8c_dc, 1,3
 %if HIGH_BIT_DEPTH
     movq      m0, [r0-FDEC_STRIDEB+0]
     movq      m1, [r0-FDEC_STRIDEB+8]
-    %define rpiclcache r1 ; nominate r1 for no-save PIC; r1 isn't loaded yet
+    %define lpiccache r1 ; nominate r1 for no-save PIC; r1 isn't loaded yet
     HADDW     m0, m2 ; PIC*
     HADDW     m1, m2 ; PIC*
-    %undef  rpiclcache
-    %assign rpiclcf 0
+    %undef  lpiccache
+    %assign lpiccf 0
 %else ; !HIGH_BIT_DEPTH
     movd      m0, [r0-FDEC_STRIDEB+0]
     movd      m1, [r0-FDEC_STRIDEB+4]
@@ -1965,11 +1965,11 @@ cglobal predict_8x16c_dc, 1,3
 %if HIGH_BIT_DEPTH
     movq      m0, [r0-FDEC_STRIDEB+0]
     movq      m1, [r0-FDEC_STRIDEB+8]
-    %define rpiclcache r1 ; nominate r1 for no-save PIC; r1 isn't loaded yet
+    %define lpiccache r1 ; nominate r1 for no-save PIC; r1 isn't loaded yet
     HADDW     m0, m2 ; PIC*
     HADDW     m1, m2 ; PIC*
-    %undef  rpiclcache
-    %assign rpiclcf 0
+    %undef  lpiccache
+    %assign lpiccf 0
 %else
     movd      m0, [r0-FDEC_STRIDEB+0]
     movd      m1, [r0-FDEC_STRIDEB+4]
@@ -2183,7 +2183,7 @@ cglobal predict_16x16_dc_left_internal, 0,4
     mova      xm0, [r0 - FDEC_STRIDEB+ 0]
     paddw     xm0, [r0 - FDEC_STRIDEB+16]
     CHECK_REG_COLLISION "rpic","r0"
-    CHECK_REG_COLLISION "rpiclcache","r0"
+    CHECK_REG_COLLISION "lpiccache","r0"
     HADDW     xm0, xm2 ; PIC*
     paddw     xm0, %1
     psrlw     xm0, %2
@@ -2192,7 +2192,7 @@ cglobal predict_16x16_dc_left_internal, 0,4
     STORE16    m0 ; r0
 %else
     CHECK_REG_COLLISION "rpic","r1d"
-    CHECK_REG_COLLISION "rpiclcache","r1d"
+    CHECK_REG_COLLISION "lpiccache","r1d"
     STORE16    m0, m0 ; r0, r1d*
 %endif
 %else ; !HIGH_BIT_DEPTH
@@ -2213,7 +2213,7 @@ cglobal predict_16x16_dc, 1,3
     call predict_16x16_dc_left_internal
     lea          r1d, [r1+r2+16]
     movd         xm3, r1d
-    %define rpiclcache r2 ; nominate r2 (used no more) for no-save PIC
+    %define lpiccache r2 ; nominate r2 (used no more) for no-save PIC
     PRED16x16_DC xm3, 5 ; r0, r1d, PIC*
     RET
 

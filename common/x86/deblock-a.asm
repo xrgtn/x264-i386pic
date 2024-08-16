@@ -740,7 +740,7 @@ DEBLOCK_LUMA_INTRA_64
 ;-----------------------------------------------------------------------------
 cglobal deblock_v_luma_intra, 4,7,8,0-3*mmsize
     PIC_ALLOC
-    ; Cache rpicl so that PIC block inside the .loop: below doesn't do
+    ; Cache lpic so that PIC block inside the .loop: below doesn't do
     ; `call+pop' init each time, but just loads label addr from stack.
     PIC_BEGIN r6, 0 ; r6 pushed by PROLOGUE, but not loaded/initialized yet,
     PIC_END         ; don't save.
@@ -781,7 +781,7 @@ cglobal deblock_h_luma_intra, 4,7,8,0-8*mmsize
     lea     r4, [r1*3]
     mov     r5, 32/mmsize
 %else
-    PIC_BEGIN r6, 0 ; cache rpicl, don't save r6 (not used yet)
+    PIC_BEGIN r6, 0 ; cache lpic, don't save r6 (not used yet)
     PIC_END
     lea     r4, [r1*4]
     lea     r5, [r1*3] ; 3*stride
@@ -1924,7 +1924,7 @@ cglobal deblock_inter_body ; r2..r4, PICx2:r6=$$
 ;-----------------------------------------------------------------------------
 cglobal deblock_v_chroma, 5,7,8
     PIC_ALLOC
-    PIC_BEGIN r6, 0, $$ ; cache $$ in rpiclcache ; r6 not used yet, don't save
+    PIC_BEGIN r6, 0, $$ ; cache $$ in lpiccache ; r6 not used yet, don't save
     PIC_END
     FIX_STRIDES r1
     mov         r5, r0
@@ -1950,7 +1950,7 @@ cglobal deblock_v_chroma, 5,7,8
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma, 5,7,8
     PIC_ALLOC
-    PIC_BEGIN r5, 0, $$ ; cache $$ in rpiclcache ; r5 not used yet, don't save
+    PIC_BEGIN r5, 0, $$ ; cache $$ in lpiccache ; r5 not used yet, don't save
     PIC_END
     add         r1, r1
     mov         r5, 32/mmsize ; r5 gets written to, its old value is lost
@@ -2056,7 +2056,7 @@ cglobal deblock_h_chroma_intra_mbaff, 4,6,8
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma_mbaff, 5,7,8
     PIC_ALLOC
-    PIC_BEGIN r5, 0, $$ ; cache $$ in rpiclcache ; r5 not used yet, don't save
+    PIC_BEGIN r5, 0, $$ ; cache $$ in lpiccache ; r5 not used yet, don't save
     PIC_END
     add         r1, r1
     lea         r6, [r1*3]
@@ -2072,7 +2072,7 @@ cglobal deblock_h_chroma_mbaff, 5,7,8
     psraw m6, 8
     punpcklwd m6, m6
     pand m7, m6
-    DEBLOCK_P0_Q0 m1, m2, m0, m3, m7, m5, m6 ; PIC x2, will use cached rpicl
+    DEBLOCK_P0_Q0 m1, m2, m0, m3, m7, m5, m6 ; PIC x2, will use cached lpic
     CHROMA_H_STORE r6 ; r0, r1
 %if mmsize == 8
     lea         r0, [r0+r1*(mmsize/4)]
@@ -2109,7 +2109,7 @@ cglobal deblock_h_chroma_422_intra, 4,6,8
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma_422, 5,7,8
     PIC_ALLOC
-    PIC_BEGIN r5, 0, $$ ; cache $$ in rpiclcache ; r5 not used yet, don't save
+    PIC_BEGIN r5, 0, $$ ; cache $$ in lpiccache ; r5 not used yet, don't save
     PIC_END
     add         r1, r1
     mov         r5, 64/mmsize
@@ -2232,7 +2232,7 @@ cglobal deblock_v_chroma, 5,6,8
 ;-----------------------------------------------------------------------------
 cglobal deblock_h_chroma, 5,7,8
     PIC_ALLOC
-    PIC_BEGIN r6, 0, $$ ; cache rpicl=$$ ; r6 is unused at tis point
+    PIC_BEGIN r6, 0, $$ ; cache lpic=$$ ; r6 is unused at tis point
     PIC_END
     CHROMA_H_START ; r0, r1, t5=r5, t6=r6
 %if mmsize==8
@@ -2293,8 +2293,8 @@ cglobal deblock_h_chroma_422, 5,8,8
     %define cntr dword r0m
 %endif
     PIC_ALLOC
-    PIC_BEGIN ; cache rpicl
-    PIC_END ; rpiclcf=1
+    PIC_BEGIN ; cache lpic
+    PIC_END ; lpiccf=1
     CHROMA_H_START
     mov  cntr, 32/mmsize
 .loop:
@@ -2405,13 +2405,13 @@ cglobal deblock_h_chroma_intra, 4,6,8
 
 cglobal deblock_h_chroma_422_intra, 4,7,8
     PIC_ALLOC
-    PIC_BEGIN r6, 0, $$ ; cache rpicl=$$ ; r6 is unused at tis point
+    PIC_BEGIN r6, 0, $$ ; cache lpic=$$ ; r6 is unused at tis point
     PIC_END
     CHROMA_H_START ; r0, r1, t5, r0m*, .loop*
     mov   r6d, 32/mmsize ; r6 is written to, its old value is lost
 .loop:
     TRANSPOSE4x8W_LOAD  PASS8ROWS(t5, r0, r1, t6)
-    PIC_BEGIN r6 ; rpiclcache=$$
+    PIC_BEGIN r6 ; lpiccache=$$
     call chroma_intra_body %+ SUFFIX %+ .skip_prologue ; r2, r3, PICx3:r6->$$
     PIC_END
     TRANSPOSE8x2W_STORE PASS8ROWS(t5, r0, r1, t6, 2)

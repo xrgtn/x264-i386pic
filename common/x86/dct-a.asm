@@ -882,7 +882,7 @@ cglobal %1, 3,3,%7
 %endif
 %endif ; !HIGH_BIT_DEPTH
 .skip_prologue:
-    call %2.skip_prologue ; TODO: pass $$ rpicl in r3
+    call %2.skip_prologue ; TODO: pass $$ lpic in r3
     add  r0, %3
     add  r1, %4-%5-%6*FENC_STRIDE
     add  r2, %4-%5-%6*FDEC_STRIDE

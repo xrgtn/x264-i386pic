@@ -445,7 +445,7 @@ cglobal sub8x8_dct, 3,3
     add r2, 4*FDEC_STRIDE
 cglobal_label .skip_prologue
 %if cpuflag(xop)
-    ; x264_8_sub8x8_dct_xop: PIC x5 times, allocate rpicsave/rpiclcache
+    ; x264_8_sub8x8_dct_xop: PIC x5 times, allocate rpicsave/lpiccache
     PIC_ALLOC
 %elif cpuflag(ssse3)
     ; x264_8_sub8x8_dct_ssse3,

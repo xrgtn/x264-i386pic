@@ -260,8 +260,8 @@ cextern popcnt_table
 %macro QUANT_DC 2
 cglobal quant_%1x%2_dc, 3,3,8
     ; nominate some scratch reg for PIC:
-    %xdefine rpiclcache %cond(ARCH_X86_64, r3, r1);r1m is used, r1 is not
-    %assign  rpiclcf 0
+    %xdefine lpiccache %cond(ARCH_X86_64, r3, r1);r1m is used, r1 is not
+    %assign  lpiccf 0
     QUANT_DC_START 6,7 ; r1m,2m; m5..7, PIC*[!avx2 & 8bit & sse4]
 %if %1*%2 <= mmsize/4
     QUANT_ONE_DC r0, m6, m7, 0 ; r0, m0..2*,6,7
@@ -396,8 +396,8 @@ cglobal quant_4x4x4, 3,3,6
 %macro QUANT_DC 2-3 0
 cglobal %1, 1,1,%3
     ; nominate some scratch reg for PIC:
-    %xdefine rpiclcache %cond(ARCH_X86_64, r3, r1);r1m is used, r1 is not
-    %assign  rpiclcf 0
+    %xdefine lpiccache %cond(ARCH_X86_64, r3, r1);r1m is used, r1 is not
+    %assign  lpiccf 0
 %if %2==1
     QUANT_DC_START 2,3 ; r1m,2m; m2,3,5; PIC*[!avx2 & 8bit & sse4]
     QUANT_ONE [r0], m2, m3, 0, 5 ; r0, m0..3,5

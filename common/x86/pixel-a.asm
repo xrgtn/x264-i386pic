@@ -1152,10 +1152,10 @@ cglobal pixel_var2_internal
     ; r0,1 and t0 regs are passed to this function
     ; r0,1 are returned unchanged
     ; t0 is clobbered upon return (decremented or used for PIC)
-%define rpicl      $$  ; start of .text when loaded in mem
-%assign rpiclcf    1   ; pixel_var2_internal expects $$ in rpiclcache
+%define lpic      $$  ; start of .text when loaded in mem
+%assign lpiccf    1   ; pixel_var2_internal expects $$ in lpiccache
 %if ARCH_X86_64
-%define rpiclcache r3  ; scratch reg (volatile)
+%define lpiccache r3  ; scratch reg (volatile)
 %else
     ; x264_X_pixel_var2_internal_ssse3 is called from
     ; x264_X_pixel_var2_8x8_Y, x86_32 stack is as follows:
@@ -1166,10 +1166,10 @@ cglobal pixel_var2_internal
     ;   0x...c:                   retaddr    r0m
     ;   0x...8 (esp points here): retaddr2   retaddr
     ; As you can see, pixel_var2_8x8's arg[0] is pixel_var2_internal's arg[1].
-    ; So it's possible to define rpiclcache as r0m in pixel_var2_8x8,
+    ; So it's possible to define lpiccache as r0m in pixel_var2_8x8,
     ; to define it as r1m in pixel_var2_internal and have both definitions
     ; refer to the same location.
-%define rpiclcache r1m ; r0m in caller
+%define lpiccache r1m ; r0m in caller
 %endif
     pxor        m0, m0 ; sum
     pxor        m1, m1 ; sqr
@@ -1199,9 +1199,9 @@ cglobal pixel_var2_internal
 %macro VAR2_8x8_SSSE3 2
 cglobal pixel_var2_8x%1, 2,3,8
 %if ARCH_X86_64
-%define rpiclcache r3
+%define lpiccache r3
 %else
-%define rpiclcache r0m ; this r0m == pixel_var2_internal_ssse3()'s r1m
+%define lpiccache r0m ; this r0m == pixel_var2_internal_ssse3()'s r1m
 %endif
     PIC_BEGIN t0, 0, $$ ; t0 is reset later anyways
     CHECK_REG_COLLISION "rpic","r2mp"
@@ -1693,11 +1693,11 @@ cglobal pixel_satd_4x4, 4,6
     paddd   %1, %2
 %endif
 %else
-    ; If not inside PIC_BEGIN/END block and no rpiclcache defined:
-    %if picb<1 && %isidn(%str(rpiclcache), "rpiclcache")
+    ; If not inside PIC_BEGIN/END block and no lpiccache defined:
+    %if picb<1 && %isidn(%str(lpiccache), "lpiccache")
         CHECK_REG_COLLISION "rax",%1
-        %xdefine rpiclcache rax ; nominate rax for PIC as it's retval'ed later
-        %assign rpiclcf 0
+        %xdefine lpiccache rax ; nominate rax for PIC as it's retval'ed later
+        %assign lpiccf 0
     %endif
     HADDW   %1, xm7 ; PIC*:r4,1 / nominated:rax,0
 %endif
@@ -1884,7 +1884,7 @@ cglobal pixel_satd_8x8_internal
 %if PIC==2
     %assign  picb  1
     %xdefine rpic  r6
-    %xdefine rpicl $$
+    %xdefine lpic $$
 %endif
     LOAD_SUMSUB_8x4P 0, 1, 2, 3, 4, 5, 7, r0, r2, 1, 0
     SATD_8x4_SSE vertical, 0, 1, 2, 3, 4, 5, 6 ; PIC*
@@ -1894,7 +1894,7 @@ cglobal pixel_satd_8x8_internal
 %if PIC==2
     %assign picb 0
     %undef  rpic
-    %undef  rpicl
+    %undef  lpic
 %endif
     ret
 
@@ -2818,7 +2818,7 @@ cglobal intra_satd_x3_8x8c, 0,6
     %assign %%pad0 72
 %if HIGH_BIT_DEPTH && (!cpuflag(xop) || mmsize != 16)
     %assign %%pad0 %%pad0+2*(gprsize)
-    %define rpiclcache [rsp+72+gprsize] ; size gprsize
+    %define lpiccache [rsp+72+gprsize] ; size gprsize
     %define rpicsave   [rsp+72]         ; size gprsize
 %endif
     %assign %%pad %%pad0 + (15 & -(gprsize+stack_offset+%%pad0))
@@ -2900,9 +2900,9 @@ cglobal intra_satd_x3_8x8c, 0,6
     movq        m7, m0
 %if HIGH_BIT_DEPTH
     psrlq       m7, 16
-    ; TODO: need different way to nominate reg for PIC than reg-as-rpiclcache
+    ; TODO: need different way to nominate reg for PIC than reg-as-lpiccache
     ; method. For the PIC* HADDW macro below we can nominate any reg except r2
-    ; (which is still used near RET), while having valid rpiclcache in
+    ; (which is still used near RET), while having valid lpiccache in
     ; [rsp+72+gprsize]:
 %if cpuflag(xop) && mmsize == 16
     HADDW       m7, m3
@@ -3427,7 +3427,7 @@ ALIGN 16
 %if PIC==2
     %assign  picb  1
     %xdefine rpic  r4
-    %xdefine rpicl $$
+    %xdefine lpic $$
 %endif
     pmaddubsw  m0, m7
     pmaddubsw  m1, m7
@@ -3448,7 +3448,7 @@ ALIGN 16
 %if PIC==2
     %assign  picb  0
     %undef   rpic
-    %undef   rpicl
+    %undef   lpic
 %endif
     ret
 %endif ; ARCH
@@ -4249,7 +4249,7 @@ cglobal hadamard_ac_8x8
 %if PIC==2
     %assign  picb  1
     %xdefine rpic  r4
-    %xdefine rpicl $$
+    %xdefine lpic $$
 %endif
     PIC_BEGIN r5, 1 ; no-op
     mova      m6, [pic(mask_ac4)] ; [(r4+(mask_ac4)-$$)]
@@ -4319,7 +4319,7 @@ cglobal hadamard_ac_8x8
 %if PIC==2
     %assign picb 0
     %undef  rpic
-    %undef  rpicl
+    %undef  lpic
 %endif
     ret
 
@@ -4471,7 +4471,7 @@ cglobal hadamard_ac_8x8
 %if PIC==2
     %assign  picb  1
     %xdefine rpic  r4
-    %xdefine rpicl $$
+    %xdefine lpic $$
 %endif
 %if ARCH_X86_64
     %define spill0 m8
@@ -4586,7 +4586,7 @@ cglobal hadamard_ac_8x8
 %if PIC==2
     %assign picb 0
     %undef  rpic
-    %undef  rpicl
+    %undef  lpic
 %endif
     ret
 
@@ -4921,8 +4921,8 @@ cglobal pixel_sa8d_8x8, 4,6,8
     call pixel_sa8d_8x8_internal
     vextracti128 xm1, m6, 1
     paddw xm6, xm1
-    %xdefine rpiclcache rax ; nominate rax for PIC as it's retval'ed later
-    %assign  rpiclcf    0
+    %xdefine lpiccache rax ; nominate rax for PIC as it's retval'ed later
+    %assign  lpiccf    0
     HADDW xm6, xm1 ; PIC*
     movd  eax, xm6
     add   eax, 1
@@ -4952,7 +4952,7 @@ cglobal intra_sad_x9_8x8, 5,6,8
     PIC_END
     %define off(m) (r0+m-(intra8x9_h1+128))
     ; r0 is used in off(m) macro in the same way as rpic in pic(m), but
-    ; rpicl==(intra8x9_h1+128) is .rodata-based and pic(m) would work only when
+    ; lpic==(intra8x9_h1+128) is .rodata-based and pic(m) would work only when
     ; `m' is in local .rodata; with external .rodata or any non-.rodata
     ; addresses it will generate "error: invalid effective address: impossible
     ; segment base multiplier"
@@ -5636,10 +5636,10 @@ cglobal pixel_asd8, 5,5
 %if HIGH_BIT_DEPTH
     psubw    m0, m1
     ; nominate rax for no-save PIC: it's retval'ed later anyway
-    %define  rpiclcache rax
-    %assign  rpiclcf 0
+    %define  lpiccache rax
+    %assign  lpiccf 0
     HADDW    m0, m1 ; PIC*
-    %undef   rpiclcache
+    %undef   lpiccache
     ABSD     m1, m0
 %else
     MOVHL    m1, m0
