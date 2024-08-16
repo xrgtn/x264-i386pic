@@ -741,8 +741,9 @@ INIT_XMM cpuname
     PSRLPIX     m0, m0, 7
     movd        [t1+32*SIZEOF_PIXEL], m0
 .done:
+    BRANCH_TARGET
     PIC_END
-    REP_RET
+    RET
 .fix_lt_2:
     PSLLPIX     m0, m3, 7
     test       r2b, 4
