@@ -1289,7 +1289,8 @@ cglobal optimize_chroma_2x2_dc, 0,6-cpuflag(sse4),7
     pshufd    m2, m2, q1320      ;  -  +  -  +  /  -  -  +  +
     jg .outer_loop
 .ret:
-    REP_RET
+    BRANCH_TARGET
+    RET
 .round_coeff:
     sub      t2d, t3d
     mov [t0+2*t1], t2w
