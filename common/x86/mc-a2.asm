@@ -2620,7 +2620,7 @@ cglobal mbtree_propagate_list_internal, 4,6,8
     cmp     r4d, r5d
     jl .loop
     PIC_END
-    REP_RET
+    RET
 %endmacro
 
 INIT_XMM ssse3
