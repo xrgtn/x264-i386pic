@@ -711,8 +711,9 @@ INIT_XMM cpuname
     psrldq      m0, 15
     movd        [t1+32*SIZEOF_PIXEL], m0
 .done:
+    BRANCH_TARGET
     PIC_END
-    REP_RET
+    RET
 .fix_lt_2:
     pslldq      m0, m3, 15
     jmp .do_top
