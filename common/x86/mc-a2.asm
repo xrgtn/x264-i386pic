@@ -1614,10 +1614,11 @@ cglobal plane_copy_deinterleave_rgb, 1,7
 .pw4:
     PLANE_DEINTERLEAVE_RGB_CORE 4, %%args ; BGRA ; r0,2,4,6; PIC*[mmsize32|ssse3]
 .ret:
+    BRANCH_TARGET
 %if (mmsize==32) || cpuflag(ssse3)
     PIC_FREE
 %endif
-    REP_RET
+    RET
 %endmacro
 
 %macro PLANE_DEINTERLEAVE_V210 0
