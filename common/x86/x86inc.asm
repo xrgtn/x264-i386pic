@@ -996,6 +996,20 @@ rpicl:          pop rpic
     %endif
 %endmacro
 
+; BRANCH_TARGET xdefines last_branch_adr to point to current location in
+; source.
+; It's used to manually mark branch target (location/label) before RET macro,
+; and if there were some real ops/bytes generated (PIC_END/FREE macros expanded
+; or epilogue code inserted) between it and `ret' op, then this `ret' won't get
+; prefixed by `rep'.
+; Typical usage:
+;     ...
+; .ret:
+;     BRANCH_TARGET
+;     PIC_END
+;     PIC_FREE
+;     RET
+; See also: BRANCH_INSTR, RET, AUTO_REP_RET, REP_RET
 %macro BRANCH_TARGET 0
     %if notcpuflag(ssse3)
         %%branch_instr equ $
