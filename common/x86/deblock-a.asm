@@ -1733,8 +1733,9 @@ cglobal deblock_%1_luma_intra, 4,6,16,0-(1-ARCH_X86_64)*0x50-WIN64*0x10
     PIC_END
 %endif
 .end:
+    BRANCH_TARGET
     PIC_FREE
-    REP_RET
+    RET
 
 %if cpuflag(avx)
 INIT_XMM cpuname
