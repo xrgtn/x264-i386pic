@@ -996,6 +996,13 @@ rpicl:          pop rpic
     %endif
 %endmacro
 
+%macro BRANCH_TARGET 0
+    %if notcpuflag(ssse3)
+        %%branch_instr equ $
+        %xdefine last_branch_adr %%branch_instr
+    %endif
+%endmacro
+
 ; Because x86_64 doesn't support [rip+index_reg*N+offset] addressing mode,
 ; separate general purpose register needs to be used as base reg for indexed
 ; PIC memory access. PIC64_LEA helps to initialize rpic64/rpic64l and set pic64
