@@ -158,9 +158,6 @@
 ; RET:
 ; Pops anything that was pushed by PROLOGUE, and returns.
 
-; REP_RET:
-; Use this instead of RET if it's a branch target.
-
 ; registers:
 ; rN and rNq are the native-size register holding function argument N
 ; rNd, rNw, rNb are dword, word, and byte size
@@ -1009,7 +1006,7 @@ rpicl:          pop rpic
 ;     PIC_END
 ;     PIC_FREE
 ;     RET
-; See also: BRANCH_INSTR, RET, AUTO_REP_RET, REP_RET
+; See also: BRANCH_INSTR, RET, AUTO_REP_RET
 %macro BRANCH_TARGET 0
     %if notcpuflag(ssse3)
         %%branch_instr equ $
@@ -1490,25 +1487,6 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
 ; a branch or a branch target. So switch to a 2-byte form of ret in that case.
 ; We can automatically detect "follows a branch", but not a branch target.
 ; (SSSE3 is a sufficient condition to know that your cpu doesn't have this problem.)
-%macro REP_RET 0
-    %if picb != 0
-        %error %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
-            ") at end of ", %str(current_function))
-        %assign picb 0 ; silence further PIC error messages
-    %endif
-    %if picallocd != 0
-        %error %strcat("invalid PIC_ALLOC state (", picallocd,\
-            ") at end of ", %str(current_function))
-        %assign picallocd 0 ; silence further PIC error messages
-    %endif
-    %if has_epilogue || cpuflag(ssse3)
-        RET
-    %else
-        rep ret
-    %endif
-    annotate_function_size
-%endmacro
-
 %define last_branch_adr $$
 %macro AUTO_REP_RET 0
     %if picb != 0
