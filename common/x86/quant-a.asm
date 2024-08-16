@@ -1681,7 +1681,8 @@ cglobal decimate_score64, 1,5
     jnz .loop
     add    al, 6
 .ret:
-    REP_RET
+    BRANCH_TARGET
+    RET
 .ret9:
     mov   eax, 9
     RET
