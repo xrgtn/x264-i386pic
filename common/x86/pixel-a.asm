@@ -1693,13 +1693,13 @@ cglobal pixel_satd_4x4, 4,6
     paddd   %1, %2
 %endif
 %else
-    ; If not inside PIC_BEGIN/END block and no lpiccache defined:
-    %if picb<1 && %isidn(%str(lpiccache), "lpiccache")
+    ; If not inside PIC_BEGIN/END block and no designated rpic:
+    %if picb<1 && %isidn(%str(dpic), "dpic")
+	; Designate rax for no-save PIC as it's retval'ed later:
         CHECK_REG_COLLISION "rax",%1
-        %xdefine lpiccache rax ; nominate rax for PIC as it's retval'ed later
-        %assign lpiccf 0
+	DESIGNATE_RPIC rax
     %endif
-    HADDW   %1, xm7 ; PIC*:r4,1 / nominated:rax,0
+    HADDW   %1, xm7 ; PIC*:r4,1 / designated:rax,0
 %endif
     %if picb == 1
         PIC_END
@@ -1881,7 +1881,7 @@ cglobal pixel_satd_4x16, 4, 6, 8
 
 ; in: r0..5, r6=$$ (PIC)
 cglobal pixel_satd_8x8_internal
-%if PIC==2
+%if i386pic
     %assign  picb  1
     %xdefine rpic  r6
     %xdefine lpic $$
@@ -1891,7 +1891,7 @@ cglobal pixel_satd_8x8_internal
 %%pixel_satd_8x4_internal:
     LOAD_SUMSUB_8x4P 0, 1, 2, 3, 4, 5, 7, r0, r2, 1, 0
     SATD_8x4_SSE vertical, 0, 1, 2, 3, 4, 5, 6 ; PIC*
-%if PIC==2
+%if i386pic
     %assign picb 0
     %undef  rpic
     %undef  lpic
@@ -2071,7 +2071,7 @@ cglobal pixel_sa8d_16x16, 4,8,12
     shr  eax, 1
     RET
 
-%else ; ARCH_X86_32
+%else ; !ARCH_X86_64
 
 %if mmsize == 16
 cglobal pixel_sa8d_8x8_internal
@@ -2289,8 +2289,8 @@ cglobal pixel_sa8d_16x16, 4,7
 ; %1: add spilled regs?
 ; %2: spill regs?
 %macro SA8D_SATD_ACCUM 2 ; x64
-    ASSERT PIC!=2 ; assert that this macro is only instantiated when i386 PIC
-                  ; is _not_ active (e.g. ARCH_X86_64 excludes PIC mode 2).
+    ASSERT !i386pic ; assert that this macro is only instantiated when i386 PIC
+                    ; is _not_ active (e.g. ARCH_X86_64 excludes PIC mode 2).
 %if HIGH_BIT_DEPTH
     pmaddwd m10, [pw_1]
     HADDUWD  m0, m1
@@ -2313,8 +2313,8 @@ cglobal pixel_sa8d_16x16, 4,7
 %macro SA8D_SATD 0 ; x64
 %define vertical ((notcpuflag(ssse3) || cpuflag(atom)) || HIGH_BIT_DEPTH)
 cglobal pixel_sa8d_satd_8x8_internal
-    ASSERT PIC!=2 ; assert that this function is compiled only when i386 PIC
-                  ; is _not_ active (e.g. x86_64 targets exclude PIC mode 2).
+    ASSERT !i386pic ; assert that this function is compiled only when i386 PIC
+                    ; is _not_ active (e.g. x86_64 targets exclude PIC mode 2).
     SA8D_SATD_8x4 vertical, 0, 1, 2, 3
     SA8D_SATD_8x4 vertical, 4, 5, 8, 9
 
@@ -2346,8 +2346,8 @@ cglobal pixel_sa8d_satd_8x8_internal
 ; uint64_t pixel_sa8d_satd_16x16( pixel *, intptr_t, pixel *, intptr_t )
 ;-------------------------------------------------------------------------------
 cglobal pixel_sa8d_satd_16x16, 4,8-(mmsize/32),16,SIZEOF_PIXEL*mmsize ; x64
-    ASSERT PIC!=2 ; assert that this function is compiled only when i386 PIC
-                  ; is _not_ active (e.g. x86_64 targets exclude PIC mode 2).
+    ASSERT !i386pic ; assert that this function is compiled only when i386 PIC
+                    ; is _not_ active (e.g. x86_64 targets exclude PIC mode 2).
     %define temp0 [rsp+0*mmsize]
     %define temp1 [rsp+1*mmsize]
     FIX_STRIDES r1, r3
@@ -2900,17 +2900,10 @@ cglobal intra_satd_x3_8x8c, 0,6
     movq        m7, m0
 %if HIGH_BIT_DEPTH
     psrlq       m7, 16
-    ; TODO: need different way to nominate reg for PIC than reg-as-lpiccache
-    ; method. For the PIC* HADDW macro below we can nominate any reg except r2
-    ; (which is still used near RET), while having valid lpiccache in
-    ; [rsp+72+gprsize]:
-%if cpuflag(xop) && mmsize == 16
-    HADDW       m7, m3
-%else
-    PIC_BEGIN r0, 0 ; r0 not used anymore
-    HADDW       m7, m3 ; PIC
-    PIC_END
-%endif
+    ; Designate r0 (which is not used anymore) for no-save PIC, in case HADDW
+    ; macro below triggers PIC memory access:
+    DESIGNATE_RPIC r0
+    HADDW       m7, m3 ; PIC*
     SUM_MM_X3   m0, m1, m2, m3, m4, m5, m6, paddd
     psrld       m2, 1
     paddd       m2, m7
@@ -3424,7 +3417,7 @@ cglobal intra_satd_x9_4x4, 3,4,8
 RESET_MM_PERMUTATION
 ALIGN 16
 .satd_8x4:       ; expect r4=$$
-%if PIC==2
+%if i386pic
     %assign  picb  1
     %xdefine rpic  r4
     %xdefine lpic $$
@@ -3445,7 +3438,7 @@ ALIGN 16
     PIC_END
     MOVHL      m1, m0
     paddd    xmm0, m0, m1
-%if PIC==2
+%if i386pic
     %assign  picb  0
     %undef   rpic
     %undef   lpic
@@ -4246,7 +4239,7 @@ cglobal hadamard_ac_2x2max
 ; mid: m6=mask_ac4, m7=(HIGH_BIT_DEPTH ? pw_1 : 0)
 ; out: tmp[0:31]=hadamard4, [rsp+gprsize+8]=satd, [rsp+gprsize]=sa8d
 cglobal hadamard_ac_8x8
-%if PIC==2
+%if i386pic
     %assign  picb  1
     %xdefine rpic  r4
     %xdefine lpic $$
@@ -4316,7 +4309,7 @@ cglobal hadamard_ac_8x8
     mova [rsp+gprsize], m6 ; save sa8d
     SWAP       0,  6
     SAVE_MM_PERMUTATION
-%if PIC==2
+%if i386pic
     %assign picb 0
     %undef  rpic
     %undef  lpic
@@ -4468,7 +4461,7 @@ HADAMARD_AC_WXH_MMX  8,  8
 ; in:  r0=pix, r1=stride, r2=stride*3, r4=$$
 ; out: m0,[esp+mmsize]=sa8d, [esp+2*mmsize]=satd, r0+=stride*4
 cglobal hadamard_ac_8x8
-%if PIC==2
+%if i386pic
     %assign  picb  1
     %xdefine rpic  r4
     %xdefine lpic $$
@@ -4583,7 +4576,7 @@ cglobal hadamard_ac_8x8
     mova [rsp+gprsize+mmsize], m2 ; save sa8d
     SWAP       0, 2
     SAVE_MM_PERMUTATION
-%if PIC==2
+%if i386pic
     %assign picb 0
     %undef  rpic
     %undef  lpic
@@ -4921,8 +4914,7 @@ cglobal pixel_sa8d_8x8, 4,6,8
     call pixel_sa8d_8x8_internal
     vextracti128 xm1, m6, 1
     paddw xm6, xm1
-    %xdefine lpiccache rax ; nominate rax for PIC as it's retval'ed later
-    %assign  lpiccf    0
+    DESIGNATE_RPIC rax ; designate rax for no-save PIC as it's retval'ed later
     HADDW xm6, xm1 ; PIC*
     movd  eax, xm6
     add   eax, 1
@@ -5635,11 +5627,9 @@ cglobal pixel_asd8, 5,5
     jg .loop
 %if HIGH_BIT_DEPTH
     psubw    m0, m1
-    ; nominate rax for no-save PIC: it's retval'ed later anyway
-    %define  lpiccache rax
-    %assign  lpiccf 0
+    DESIGNATE_RPIC rax ; designate rax for no-save PIC as it's retval'ed later
     HADDW    m0, m1 ; PIC*
-    %undef   lpiccache
+    DESIGNATE_RPIC     ; clear designation
     ABSD     m1, m0
 %else
     MOVHL    m1, m0

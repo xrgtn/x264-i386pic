@@ -106,8 +106,7 @@ cglobal pixel_sad_%1x%2, 4,5-(%2&4/4)
 %if %1*%2 == 256
     HADDUW  m0, m1
 %else
-    ; nominate rax for no-save PIC, it's retval-ed later anyway
-    %define lpiccache rax
+    DESIGNATE_RPIC rax ; designate rax for no-save PIC as it's retval'ed later
     HADDW   m0, m1 ; PIC*
 %endif
     movd   eax, m0
@@ -177,8 +176,7 @@ cglobal pixel_sad_%1x%2, 4,5-(%2&4/4),8*(%1/mmsize)
     dec    r4d
     jg .loop
 %endif
-    ; nominate rax for no-save PIC, it's retval-ed later anyway
-    %define lpiccache rax
+    DESIGNATE_RPIC rax ; designate rax for no-save PIC as it's retval'ed later
     HADDW   m0, m1 ; PIC*
     movd   eax, xm0
     RET

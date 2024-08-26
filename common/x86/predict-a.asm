@@ -1857,11 +1857,10 @@ cglobal predict_8x8c_dc, 1,3
 %if HIGH_BIT_DEPTH
     movq      m0, [r0-FDEC_STRIDEB+0]
     movq      m1, [r0-FDEC_STRIDEB+8]
-    %define lpiccache r1 ; nominate r1 for no-save PIC; r1 isn't loaded yet
+    DESIGNATE_RPIC r1 ; designate r1 for no-save PIC; r1 isn't loaded yet
     HADDW     m0, m2 ; PIC*
     HADDW     m1, m2 ; PIC*
-    %undef  lpiccache
-    %assign lpiccf 0
+    DESIGNATE_RPIC    ; clear designation
 %else ; !HIGH_BIT_DEPTH
     movd      m0, [r0-FDEC_STRIDEB+0]
     movd      m1, [r0-FDEC_STRIDEB+4]
@@ -1965,11 +1964,10 @@ cglobal predict_8x16c_dc, 1,3
 %if HIGH_BIT_DEPTH
     movq      m0, [r0-FDEC_STRIDEB+0]
     movq      m1, [r0-FDEC_STRIDEB+8]
-    %define lpiccache r1 ; nominate r1 for no-save PIC; r1 isn't loaded yet
+    DESIGNATE_RPIC r1 ; designate r1 for no-save PIC; r1 isn't loaded yet
     HADDW     m0, m2 ; PIC*
     HADDW     m1, m2 ; PIC*
-    %undef  lpiccache
-    %assign lpiccf 0
+    DESIGNATE_RPIC    ; clear designation
 %else
     movd      m0, [r0-FDEC_STRIDEB+0]
     movd      m1, [r0-FDEC_STRIDEB+4]
@@ -2213,7 +2211,7 @@ cglobal predict_16x16_dc, 1,3
     call predict_16x16_dc_left_internal
     lea          r1d, [r1+r2+16]
     movd         xm3, r1d
-    %define lpiccache r2 ; nominate r2 (used no more) for no-save PIC
+    DESIGNATE_RPIC r2 ; designate r2 (used no more) for no-save PIC
     PRED16x16_DC xm3, 5 ; r0, r1d, PIC*
     RET
 

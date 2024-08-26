@@ -101,6 +101,14 @@
     %endif
 %endmacro
 
+; Set i386pic from -DPIC option before PIC gets twisted.
+%if %isdef(PIC) && ARCH_X86_64==0
+    %assign i386pic 1
+%else
+    %assign i386pic 0
+%endif
+%assign amd64pic 0
+
 %if ARCH_X86_64
     %define PIC 1 ; always use PIC on x86-64
     default rel
@@ -108,15 +116,6 @@
     %define PIC 0 ; PIC isn't used on 32-bit Windows
 %elifndef PIC
     %define PIC 0
-%elifempty PIC    ; -DPIC
-    %define PIC 2 ; i386 PIC
-%elifnum PIC      ; -DPIC=0, -DPIC=1, -DPIC=1+1 etc
-    %assign PIC PIC ; convert 1+1 and alike to number
-%else             ; -DPIC=foo etc
-    ; %define X x
-    ; %error %strcat("X=", %str(X))
-    ; %assign Y X  <-- error will be reported here, therefore use fatal():
-    %fatal %strcat("invalid PIC=", %str(PIC))
 %endif
 
 %define HAVE_PRIVATE_EXTERN 1
@@ -380,26 +379,29 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 %endmacro
 
 ; PIC macros:
-; * PIC              PIC mode:
-;                    0  no PIC used (pic(a) produces (a), PIC_BEGIN and PIC_END
-;                       are no-op)
-;                    1  rip-relative PIC on x86_64 (works automagically after
-;                       'DEFAULT REL' directive -- PIC_BEGIN & PIC_END do
-;                       nothing, pic(a) produces (a) if pic64 flag is not set,
-;                       or (rpic64+(a)-lpic64) if pic64 is set -- see
-;                       PIC64_LEA).
-;                    2  i386 PIC mode: enable PIC_BEGIN, PIC_END,
-;                       pic() etc)
-; * pic(abs_addr)    expands to (rpic+(abs_addr)-lpic) when PIC == 2.
-;                    Expands to (rpic64+(abs_addr)-lpic64) if pic64 is set.
-;                    Expands to (abs_addr) otherwize.
+; * i386pic          i386 PIC flag:
+;                    0  no PIC used (pic(a) produces (a), PIC_BEGIN/END and
+;                       PIC_ALLOC/FREE are no-op)
+;                    1  enable PIC_BEGIN/END and PIC_ALLOC/FREE and expand
+;                       pic(a) into (rpic+(a)-lpic)
+; * amd64pic         amd64 PIC flag for pic() macro:
+;                    0  pic(a) expands to (a)
+;                    1  pic(a) expands to (rpic64+(a)-lpic64)
+;                    NOTE:
+;                    * i386pic is set once and for whole compilation unit
+;                    * amd64pic is reset to 0 at the beginning of each function
+;                      (in cglobal_internal macro)
+;                    * i386pic and amd64pic are mutually exclusive.
+; * pic(abs_addr)    expands to (rpic+(abs_addr)-lpic) if i386pic is set;
+;                    expands to (rpic64+(abs_addr)-lpic64) if amd64pic is set;
+;                    expands to (abs_addr) otherwize.
 ; * PIC_BEGIN        stores previous value of rpic on stack/in rpicsave and
 ;                    initializes rpic if it isn't already initialized (possibly
 ;                    using lpiccache etc).
-;                    Expands to nothing on PIC != 2.
+;                    Expands to nothing if i386pic is not set.
 ; * PIC_END          restores previous rpic and undefines rpic if not inside
 ;                    outer PIC_BEGIN/PIC_END block.
-;                    Expands to nothing on PIC != 2.
+;                    Expands to nothing if i386pic is not set.
 ; * picb             PIC_BEGIN/PIC_END balance counter.
 ; * rpic             gen-purpose register used as base reg for lpic-relative
 ;                    addressing; after initialization by PIC_BEGIN, rpic
@@ -425,14 +427,17 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; * lpiccache        lpic cache location (e.g. [rstk+stack_offset-N]), if
 ;                    defined.
 ; * lpiccf           "lpic cached" flag.
+; * dpic             "designated" no-save register for next top PIC_BEGIN/END
+;                    block
+; * dpiclf           dpic loaded flag: set when dpic contains lpic address
+; * picallocd        indicates how PIC_ALLOC allocated memory; necessary for
+;                    PIC_FREE to correctly free it.
 ; * NEXT_LPIC        generates unique label in ..@lpicN or ..@lpicN_XXX format
 ;                    and puts the result in next_lpic xdef.
 ; * lpicno_xxx       current/latest .lpic number per function/module etc.
-; * PIC64_LEA        initializes rpic64/lpic64 and sets pic64 flag.
-; * pic64            0  expand pic(a) to (a) in x86_64 PIC mode 1
-;                    1  expand pic(a) to (rpic+(a)-lpic) in PIC mode 1
-; * rpic64           rpic for x86_64 mode.
-; * lpic64           lpic for x86_64 mode.
+; * PIC64_LEA        initializes rpic64/lpic64 and sets amd64pic flag.
+; * rpic64           rpic for amd64 mode.
+; * lpic64           lpic for amd64 mode.
 ; * PIC_CONTEXT_PUSH saves PIC context on macro stack:
 ;                    * picb
 ;                    * rpic
@@ -441,6 +446,8 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                    * lpic
 ;                    * lpiccache
 ;                    * lpiccf
+;                    * dpic
+;                    * dpicf
 ;                    * picallocd
 ;                    * rstk (rpicsave/lpiccache locations can be defined
 ;                      relative to rstk+stack_offset/size/size_padded)
@@ -450,16 +457,15 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                    * stack_size_padded (see rstk)
 ; * PIC_CONTEXT_POP  restores PIC context previously saved by PIC_CONTEXT_PUSH.
 ;                    Note that global_lpicno/foo_lpicno are not part of PIC
-;                    context (lpic is enough); while pic64, rpic64 and lpic64
-;                    do not have limiting structure like BEGIN/END blocks over
-;                    them and thus do not require context push/pop hack.
+;                    context (lpic is enough); while rpic64 and lpic64 do not
+;                    have limiting structure like BEGIN/END blocks over them
+;                    and thus do not require context push/pop hack.
 
-%define pic(a) %cond(PIC==2, (rpic+(a)-lpic),\
-                     %cond(pic64, (rpic64+(a)-lpic64), (a)))
+%define pic(a) %cond(i386pic, (rpic+(a)-lpic),\
+                     %cond(amd64pic, (rpic64+(a)-lpic64), (a)))
 %assign picb 0
 %assign lpiccf 0
 %assign picallocd 0
-%assign pic64 0
 
 ; PIC_CONTEXT_PUSH/POP macro pair is useful when code returns or jumps out from
 ; inside of PIC_BEGIN/END block, e.g. if function has several RETs:
@@ -549,6 +555,12 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %ifdef lpiccf
         %xdefine %$lpiccf lpiccf
     %endif
+    %ifdef dpic
+        %xdefine %$dpic dpic
+    %endif
+    %ifdef dpiclf
+        %xdefine %$dpiclf dpiclf
+    %endif
     %assign %$picallocd picallocd
     ; restore rstk/stack_params:
     %ifdef %$rstk
@@ -604,6 +616,16 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %else
         %undef lpiccf
     %endif
+    %ifdef %$dpic
+        %xdefine dpic %$dpic
+    %else
+        %undef dpic
+    %endif
+    %ifdef %$dpiclf
+        %xdefine dpiclf %$dpiclf
+    %else
+        %undef dpiclf
+    %endif
     %assign picallocd %$picallocd
     ; restore rstk/stack_params last:
     %ifdef %$rstk
@@ -623,9 +645,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 
 ; PIC_BEGIN [reg[, fsave[, label]]]
 ; Initialize PIC block to use reg as rpic, or select rpic automatically (r2
-; if regs_used < 3 or r5 otherwize). NOTE: if lpiccache is defined beforehand
-; and expands to a general purpose register, lpiccache register will be used
-; for rpic, overriding reg parameter and auto-selection.
+; if regs_used < 3 or r5 otherwize). NOTE: if dpic is defined beforehand,
+; dpic register will be used for rpic, overriding reg parameter and
+; auto-selection.
 ; If fsave flag is given, use it to override rpicsf which is decided
 ; automatically (typically rpicsf=0 when regs_used < 3).
 ; If label parameter is given, initialize rpic with its address instead of
@@ -639,19 +661,12 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; If lpiccf has been set beforehand, load previous lpic label address from
 ; lpiccache and don't perform call/pop initialization.
 %macro PIC_BEGIN 0-3
-    %if PIC == 2
+    %if i386pic
         %if picb == 0
             %assign %%rpic_auto 1
             %if %0 >= 1
                 %ifnempty %1
                     %assign %%rpic_auto 0
-                %endif
-            %endif
-            %if %isdef(lpiccache) && %isid(lpiccache)
-                ; %ifdef reg_id_of_ %+ ... won't work, use reg_id_of_%[...]:
-                %ifdef reg_id_of_%[lpiccache]
-                    ; lpiccache is a register, can use it for rpic
-                    %assign %%rpic_auto -1
                 %endif
             %endif
             ; cglobal foo_asm, 0,0,0,a,b,c,d,e in fact uses 5 registers (a:r0,
@@ -662,11 +677,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %else
                 %assign %%narg 0
             %endif
-            %if %%rpic_auto == -1
-                %xdefine rpic lpiccache
+            %ifdef dpic ; designated no-save rpic present
+                %xdefine rpic dpic
                 %assign rpicsf 0
-                ;%warning %strcat("using ", lpiccache, " for rpic in ", \
-                ;    current_function)
             %elif %%rpic_auto == 0
                 %xdefine rpic %1
                 %assign rpicsf 1
@@ -691,8 +704,8 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             ; override rpicsf if fsave is present:
             %if %0 >=2
                 %ifnempty %2
-                    ; ignore %2 if rpic==lpiccache
-                    %if %%rpic_auto != -1
+                    ; ignore %2 if using dpic
+                    %ifndef dpic
                         %xdefine rpicsf %2
                     %endif
                 %endif
@@ -708,7 +721,18 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                 %endif
             %endif
             %assign %%lpicchanged 0
-            %if lpiccf
+            %ifndef dpic
+                %assign %%dpiclf 0
+            %elifndef dpiclf
+                %assign %%dpiclf 0
+            %elif dpiclf==0
+                %assign %%dpiclf 0
+            %else
+                %assign %%dpiclf 1
+            %endif
+            %if %%dpiclf
+                ; do nothing (rpic==dpic and dpic is already loaded)
+            %elif lpiccf
                 movifnidn rpic, lpiccache
             %else
                 NEXT_LPIC
@@ -729,19 +753,24 @@ lpic:           pop rpic
                     %assign lpiccf 1
                 %endif
             %endif
+            %ifdef dpic
+                %assign dpiclf 1
+            %endif
         %endif
         %assign picb picb+1
     %endif
 %endmacro
 ; PIC_END closes current PIC_BEGIN/END block and decrements picb.
 ; When closing last (topmost) block:
-; * PIC_END updates lpiccache if it's defined and lpiccf==0,
-; * restores previous value of register used for rpic, if rpicsf is set;
-; * undefines rpic and rpicsf,
+; * PIC_END updates lpiccache if it's defined and lpiccf==0;
+; * restores previous value of register used for rpic, if rpicsf is set:
+;   - if dpiclf is defined when restoring rpic, clears dpiclf;
+; * undefines rpic and rpicsf;
 ; * undefines lpic, if lpiccache is not defined;
 ;   - otherwize it keeps lpic defined after PIC_BEGIN/END block is finished;
+; * leaves dpic/dpiclf without changes.
 %macro PIC_END 0
-    %if PIC == 2
+    %if i386pic
         %assign picb picb-1
         %if picb < 0
             %error %strcat(%?, " not matched by PIC_BEGIN in ",\
@@ -767,6 +796,9 @@ lpic:           pop rpic
                 %else
                     mov rpic, rpicsave
                 %endif
+                %ifdef dpiclf
+                    %assign dpiclf 0 ; dpic is unloaded
+                %endif
                 %ifidn rpic, lpiccache
                     ; restoring into lpiccache invalidates cache; having
                     ; rpicsf set while rpic==lpiccache is an error:
@@ -776,6 +808,35 @@ lpic:           pop rpic
             %endif
             %undef rpic
             %undef rpicsf
+        %endif
+    %endif
+%endmacro
+
+%macro DESIGNATE_RPIC 0-2
+    %if i386pic
+        %if picb > 0
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block in ",\
+                %str(current_function))
+        %endif
+        %if %0 >= 1
+            ; designate %1 register for no-save rpic
+            %ifnid %1
+                %error %strcat("invalid register name: ", %1)
+            %endif
+            %ifndef reg_id_of_%1
+                %error %strcat("not a register name: ", %1)
+            %endif
+            %xdefine dpic %1
+            %assign dpiclf 0
+            %if %0 >= 2
+                %if %2 ; set "dpic loaded" flag
+                    %assign dpiclf 1
+                %endif
+            %endif
+        %else
+            ; unset designated register
+            %undef dpic
+            %undef dpiclf
         %endif
     %endif
 %endmacro
@@ -842,12 +903,15 @@ lpic:           pop rpic
 ;                                    ;  0x..20: .......__|__align32
 ;                                    ;  0x..18: ==stk==  |
 ;                                    ;  0x..10: ==sz===--+
-%macro PIC_ALLOC 0
-    %if PIC==2
+%macro PIC_ALLOC 0-1
+    %if i386pic
         ASSERT (stack_size_padded >= stack_size)
-        %if picallocd != 0
+        %if picb > 0
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block in ",\
+                %str(current_function))
+        %elif picallocd != 0
             %error %strcat(%?, " in non-zero PIC_ALLOC state (",\
-                picallocd, ")")
+                picallocd, "), in ", %str(current_function))
         %endif
         ; Estimate required stack %%wpad (used on WIN64)
         %assign %%wpad 0
@@ -867,9 +931,22 @@ lpic:           pop rpic
         %if WIN64 && ((stack_size > 0) || (%%nxmmpush > 0))
             %assign %%wpad 16*nxmmresv + 32
         %endif
-        %if picb > 0
-            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
-        %elif (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
+        ; rpicsave, lpiccache or both:
+        %if %0 == 0
+            %assign %%ak  3           ; requested alloc mask
+            %assign %%asz 2*(gprsize) ; requested alloc size
+        %elifidn %1,"rpicsave"
+            %assign %%ak  1
+            %assign %%asz 1*(gprsize)
+        %elifidn %1,"lpiccache"
+            %assign %%ak  2
+            %assign %%asz 1*(gprsize)
+        %else
+            %assign %%ak  0
+            %assign %%asz 0*(gprsize)
+            %error %strcat("Invalid ", %?," %1 parameter: ", %1)
+        %endif
+        %if (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
             ; aligned to reqrd_align and rsp stored in rstkm
             ; TODO: try placing sv/cache (in this order):
             ; - in !!!!!!!-gap, if there's enough space
@@ -881,60 +958,59 @@ lpic:           pop rpic
         %else
             ; aligned to stk_align or not aligned at all
             ASSERT %isidn(rstk, rsp)
-            %assign %%g 2*(gprsize)
-            %assign %%G %cond((STACK_ALIGNMENT) > %%g, (STACK_ALIGNMENT), %%g)
-            %if (stack_size_padded-stack_size-%%wpad) >= 2*(gprsize)
-                ; !!!!!!!-gap is already large enough to hold 2 regs
-                %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
+            %assign %%ASZ %cond((STACK_ALIGNMENT) > %%asz,\
+                (STACK_ALIGNMENT), %%asz)
+            %if (stack_size_padded-stack_size-%%wpad) >= %%asz
+                ; !!!!!!!-gap is already large enough to hold %%asz bytes
+                %assign %%ao stack_offset-(stack_size_padded)+%%asz
                 %assign picallocd 1
             %elif stack_size_padded == 0
                 ; no stack_size, no pad, unaligned -- create pad, don't align:
-                %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
-                SUB rsp, %%g
-                %assign stack_size_padded %%g
+                %assign %%ao stack_offset-(stack_size_padded)+%%asz
+                SUB rsp, %%asz
+                %assign stack_size_padded %%asz
                 %assign picallocd 2
             %elif %%nxmmpush == 0
                 ; non-empty pad, but no xmm regs to move -- inflate
                 ; !!!!!!!-gap at the top of stack pad:
-                %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
-                SUB rsp, %%G
-                %assign stack_size_padded stack_size_padded+%%G
+                %assign %%ao stack_offset-(stack_size_padded)+%%asz
+                SUB rsp, %%ASZ
+                %assign stack_size_padded stack_size_padded+%%ASZ
                 %assign picallocd 3
             %elif stack_size > 0
                 ; WIN64, xmm regs pushed, non-empty stack_size area,
                 ; rqrd_align <= stk_align -- inflate stack_size, so that xmm
                 ; regs are left untouched:
-                %assign %%sv stack_offset-(stack_size)+2*(gprsize)
-                SUB rsp, %%G
-                %assign stack_size_padded stack_size_padded+%%G
-                %assign stack_size stack_size+%%G
+                %assign %%ao stack_offset-(stack_size)+%%asz
+                SUB rsp, %%ASZ
+                %assign stack_size_padded stack_size_padded+%%ASZ
+                %assign stack_size stack_size+%%ASZ
                 %assign picallocd 4
             %elif required_stack_alignment > STACK_ALIGNMENT
                 ; WIN64, nxmmpush > 0, initial stack_size is 0 and inflating it
                 ; forces switch to rstk/rstkm model, with unknown at compile
                 ; time shift of xmm save area (so xmm regs would need to be
                 ; pushed/saved again).
-                ; Here we extend wpad and place 2 regs at its bottom,
-                ; temporarily invalidating [rsp+stack_size+32+i*16] references
-                ; to xmm save area, until PIC_FREE
-                %assign %%sv stack_offset-(stack_size)-32
-                SUB rsp, %%G
-                %assign stack_size_padded stack_size_padded+%%G
+                ; Here we extend wpad and place rpicsave/lpiccache area at its
+                ; bottom, temporarily invalidating [rsp+stack_size+32+i*16]
+                ; references to xmm save area, until PIC_FREE
+                %assign %%ao stack_offset-(stack_size)-32
+                SUB rsp, %%ASZ
+                %assign stack_size_padded stack_size_padded+%%ASZ
                 %assign picallocd 5
             %else ; rqrd_align <= stk_align
                 ; WIN64, nxmmpush > 0, initial stack_size==0 but inflating it
                 ; won't switch to rstk/rstkm model.
-                %assign %%sv stack_offset-(stack_size)+2*(gprsize)
-                SUB rsp, %%G
-                %assign stack_size_padded stack_size_padded+%%G
-                %assign stack_size %%G
+                %assign %%ao stack_offset-(stack_size)+%%asz
+                SUB rsp, %%ASZ
+                %assign stack_size_padded stack_size_padded+%%ASZ
+                %assign stack_size %%ASZ
                 %assign picallocd 6
             %endif
-            ; sv is distance from rpicsave to retaddr (return address pushed to
-            ; stack by caller); cc is distance from lpiccache to retaddr.
-            ; lpiccache is directly above rpicsave, so it's 1 regsize closer
-            ; to retaddr:
-            %assign %%cc %%sv-gprsize
+            ; %%ao is distance from start (bottom) or rpicsave/lpiccache area
+            ; to retaddr (return address pushed to stack by caller);
+            ; %%ao2 is 1 slot above %%ao, so it's 1 regsize closer to retaddr:
+            %assign %%ao2 %%ao-(gprsize)
             ; xdefine rpicsave/lpiccache as macros with 'unexpanded' rstk and
             ; stack_offset parameters (trick is for rstk and stack_offset to be
             ; undefined at the moment when rpicsave/lpiccache are being
@@ -944,8 +1020,14 @@ lpic:           pop rpic
             %xdefine %%stko  stack_offset
             %undef stack_offset
             %undef rstk
-            %xdefine rpicsave  [rstk+stack_offset-%%sv]
-            %xdefine lpiccache [rstk+stack_offset-%%cc]
+            %if %%ak==1
+                %xdefine rpicsave  [rstk+stack_offset-%%ao]
+            %elif %%ak==2
+                %xdefine lpiccache [rstk+stack_offset-%%ao]
+            %elif %%ak==3
+                %xdefine rpicsave  [rstk+stack_offset-%%ao]
+                %xdefine lpiccache [rstk+stack_offset-%%ao2]
+            %endif
             %xdefine stack_offset %%stko
             %xdefine rstk %%rstk
         %endif
@@ -953,10 +1035,11 @@ lpic:           pop rpic
 %endmacro
 
 %macro PIC_FREE 0
-    %if PIC==2
+    %if i386pic
         ASSERT (stack_size_padded >= stack_size)
         %if picb > 0
-            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block in ",\
+                %str(current_function))
         %elif (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
             %fatal %strcat(%?, " can't free w/rstkm")
         %else
@@ -983,7 +1066,7 @@ lpic:           pop rpic
                 %assign stack_size        0
             %else
                 %error %strcat(%?, " in invalid PIC_ALLOC state (",\
-                    picallocd, ")")
+                    picallocd, "), in ", %str(current_function))
             %endif
             %undef  rpicsave
             %undef  lpiccache
@@ -1016,15 +1099,18 @@ lpic:           pop rpic
 
 ; Because x86_64 doesn't support [rip+index_reg*N+offset] addressing mode,
 ; separate general purpose register needs to be used as base reg for indexed
-; PIC memory access. PIC64_LEA helps to initialize rpic64/lpic64 and set pic64
-; flag for pic() macro to produce rpic64-based address.
-; If PIC is somehow disabled on x86_64 (PIC==0), PIC64_LEA turns to a no-op.
+; PIC memory access. PIC64_LEA helps to initialize rpic64/lpic64 and set
+; amd64pic flag for pic() macro to produce rpic64-based address.
 %macro PIC64_LEA 2 ; reg, label
-    %if ARCH_X86_64 && (PIC==1)
+    %if ARCH_X86_64
         %xdefine rpic64 %1
         %xdefine lpic64 (%2)
-        %assign pic64 1
-        lea rpic64, [lpic64] ; lea rpic64, [rip+lpic64-$]
+        %assign amd64pic 1
+        ;%ifdef PIC ; DEFAULT REL
+        ;    lea rpic64, [lpic64]
+        ;%else
+            lea rpic64, [rip+lpic64-$]
+        ;%endif
     %endif
 %endmacro
 
@@ -1555,7 +1641,9 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     %undef rpicsave
     %undef lpiccache
     %assign lpiccf 0
-    %assign pic64 0
+    %undef dpic
+    %undef dpiclf
+    %assign amd64pic 0
     %undef rpic64
     %undef lpic64
     annotate_function_size
